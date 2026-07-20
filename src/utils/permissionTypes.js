@@ -37,6 +37,17 @@ export const normalizeCrud = (value) => {
   return { ...EMPTY_CRUD };
 };
 
+export const applyCrudDependencies = (crud) => {
+  const next = normalizeCrud(crud);
+  if (next.create || next.update || next.delete) {
+    next.read = true;
+  }
+  if (!next.read) {
+    return { ...EMPTY_CRUD };
+  }
+  return next;
+};
+
 /**
  * Deep-clone a navigation tree, normalizing every leaf to CRUD objects.
  * @param {object} node
@@ -51,7 +62,7 @@ export const normalizeNavigationTree = (node) => {
   const looksLikeCrud = keys.some((k) => CRUD_KEYS.includes(k));
 
   if (looksLikeCrud) {
-    return normalizeCrud(node);
+    return applyCrudDependencies(normalizeCrud(node));
   }
 
   const result = {};
@@ -101,9 +112,9 @@ export const mergeNavigation = (target, source) => {
     const targetIsCrud = targetValue && CRUD_KEYS.some((k) => k in targetValue);
 
     if (sourceIsCrud && targetIsCrud) {
-      result[key] = { ...targetValue, ...sourceValue };
+      result[key] = applyCrudDependencies({ ...targetValue, ...sourceValue });
     } else if (sourceIsCrud && !targetIsCrud) {
-      result[key] = { ...sourceValue };
+      result[key] = applyCrudDependencies(sourceValue);
     } else if (!sourceIsCrud && targetIsCrud) {
       result[key] = mergeNavigation({ ...EMPTY_CRUD }, sourceValue);
     } else {
@@ -132,6 +143,6 @@ export const hasCrudPermission = (navigation, path, action) => {
     current = current[key];
   }
 
-  const crud = normalizeCrud(current);
+  const crud = applyCrudDependencies(normalizeCrud(current));
   return Boolean(crud[action]);
 };

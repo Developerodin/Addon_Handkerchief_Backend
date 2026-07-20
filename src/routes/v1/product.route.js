@@ -1,23 +1,28 @@
 import express from 'express';
 import validate from '../../middlewares/validate.js';
+import auth from '../../middlewares/auth.js';
+import { requireCrud, requireAnyCrud } from '../../middlewares/requireCrud.js';
 import { bulkImportMiddleware, validateBulkImportSize } from '../../middlewares/bulkImport.js';
 import * as productValidation from '../../validations/product.validation.js';
 import * as productController from '../../controllers/product.controller.js';
 
 const router = express.Router();
+const ITEMS = 'Catalog.Items';
 
 router
   .route('/')
-  .post(validate(productValidation.createProduct), productController.createProduct)
-  .get(validate(productValidation.getProducts), productController.getProducts);
+  .post(auth(), requireCrud(ITEMS, 'create'), validate(productValidation.createProduct), productController.createProduct)
+  .get(auth(), requireCrud(ITEMS, 'read'), validate(productValidation.getProducts), productController.getProducts);
 
 router
   .route('/debug')
-  .get(productController.debugQuery);
+  .get(auth(), requireCrud(ITEMS, 'read'), productController.debugQuery);
 
 router
   .route('/bulk-import')
   .post(
+    auth(),
+    requireAnyCrud(ITEMS, ['create', 'update']),
     bulkImportMiddleware,
     validateBulkImportSize,
     validate(productValidation.bulkImportProducts),
@@ -27,6 +32,8 @@ router
 router
   .route('/bulk-upsert')
   .post(
+    auth(),
+    requireAnyCrud(ITEMS, ['create', 'update']),
     bulkImportMiddleware,
     validateBulkImportSize,
     validate(productValidation.bulkUpsertProducts),
@@ -36,26 +43,28 @@ router
 router
   .route('/bulk-export')
   .get(
+    auth(),
+    requireCrud(ITEMS, 'read'),
     validate(productValidation.bulkExportProducts),
     productController.bulkExportProducts
   );
 
 router
   .route('/by-code')
-  .get(validate(productValidation.getProductByCode), productController.getProductByCode);
+  .get(auth(), requireCrud(ITEMS, 'read'), validate(productValidation.getProductByCode), productController.getProductByCode);
 
 router
   .route('/by-factory-codes')
-  .post(validate(productValidation.getProductsByFactoryCodes), productController.getProductsByFactoryCodes);
+  .post(auth(), requireCrud(ITEMS, 'read'), validate(productValidation.getProductsByFactoryCodes), productController.getProductsByFactoryCodes);
 
 router
   .route('/style-codes-by-vendor-code')
-  .get(validate(productValidation.getStyleCodesByVendorCode), productController.getStyleCodesByVendorCode);
+  .get(auth(), requireCrud(ITEMS, 'read'), validate(productValidation.getStyleCodesByVendorCode), productController.getStyleCodesByVendorCode);
 
 router
   .route('/:productId')
-  .get(validate(productValidation.getProduct), productController.getProduct)
-  .patch(validate(productValidation.updateProduct), productController.updateProduct)
-  .delete(validate(productValidation.deleteProduct), productController.deleteProduct);
+  .get(auth(), requireCrud(ITEMS, 'read'), validate(productValidation.getProduct), productController.getProduct)
+  .patch(auth(), requireCrud(ITEMS, 'update'), validate(productValidation.updateProduct), productController.updateProduct)
+  .delete(auth(), requireCrud(ITEMS, 'delete'), validate(productValidation.deleteProduct), productController.deleteProduct);
 
-export default router; 
+export default router;

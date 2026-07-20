@@ -16,11 +16,6 @@ export const CATALOG_MODULES = [
   'Processes',
   'Attributes',
   'Style Codes',
-  'Style Code Pairs',
-  'Machines',
-  'Needle Configuration',
-  'Team Master',
-  'Containers Master',
 ];
 
 const buildCatalogDefaults = () =>

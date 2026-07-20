@@ -2,6 +2,9 @@ import request from 'supertest';
 import httpStatus from 'http-status';
 import app from '../utils/catalogTestApp';
 import setupTestDB from '../utils/setupTestDB';
+import { insertUsers, admin } from '../fixtures/user.fixture';
+import { adminAccessToken } from '../fixtures/token.fixture';
+import { getDefaultNavigationByRole } from '../../src/utils/navigationHelper.js';
 import {
   buildAttributePayload,
   buildCategoryPayload,
@@ -14,6 +17,11 @@ import {
 setupTestDB();
 
 const api = request(app);
+const authHeader = { Authorization: `Bearer ${adminAccessToken}` };
+
+beforeEach(async () => {
+  await insertUsers([{ ...admin, navigation: getDefaultNavigationByRole('admin') }]);
+});
 
 const runFullCrudFlow = async ({
   basePath,
@@ -22,33 +30,33 @@ const runFullCrudFlow = async ({
   searchTerm,
   idField = 'id',
 }) => {
-  const createRes = await api.post(basePath).send(createPayload).expect(httpStatus.CREATED);
+  const createRes = await api.post(basePath).set(authHeader).send(createPayload).expect(httpStatus.CREATED);
   const createdId = createRes.body[idField];
   expect(createdId).toBeDefined();
 
-  const listRes = await api.get(basePath).query({ limit: 50 }).expect(httpStatus.OK);
+  const listRes = await api.get(basePath).set(authHeader).query({ limit: 50 }).expect(httpStatus.OK);
   expect(listRes.body.results).toEqual(
     expect.arrayContaining([expect.objectContaining({ [idField]: createdId })])
   );
 
   if (searchTerm) {
-    const searchRes = await api.get(basePath).query({ search: searchTerm, limit: 50 }).expect(httpStatus.OK);
+    const searchRes = await api.get(basePath).set(authHeader).query({ search: searchTerm, limit: 50 }).expect(httpStatus.OK);
     expect(searchRes.body.results).toEqual(
       expect.arrayContaining([expect.objectContaining({ [idField]: createdId })])
     );
   }
 
-  await api.get(`${basePath}/${createdId}`).expect(httpStatus.OK);
+  await api.get(`${basePath}/${createdId}`).set(authHeader).expect(httpStatus.OK);
 
-  const updateRes = await api.patch(`${basePath}/${createdId}`).send(updatePayload).expect(httpStatus.OK);
+  const updateRes = await api.patch(`${basePath}/${createdId}`).set(authHeader).send(updatePayload).expect(httpStatus.OK);
   Object.entries(updatePayload).forEach(([key, value]) => {
     expect(updateRes.body[key]).toBe(value);
   });
 
-  await api.delete(`${basePath}/${createdId}`).expect(httpStatus.NO_CONTENT);
-  await api.get(`${basePath}/${createdId}`).expect(httpStatus.NOT_FOUND);
+  await api.delete(`${basePath}/${createdId}`).set(authHeader).expect(httpStatus.NO_CONTENT);
+  await api.get(`${basePath}/${createdId}`).set(authHeader).expect(httpStatus.NOT_FOUND);
 
-  const afterDeleteList = await api.get(basePath).query({ limit: 100 }).expect(httpStatus.OK);
+  const afterDeleteList = await api.get(basePath).set(authHeader).query({ limit: 100 }).expect(httpStatus.OK);
   const ids = (afterDeleteList.body.results || []).map((row) => row[idField]);
   expect(ids).not.toContain(createdId);
 };
@@ -105,10 +113,10 @@ describe('Master Catalog API — sidebar modules', () => {
   });
 
   test('Items: create with linked catalog data, list, search, get, update, delete', async () => {
-    const categoryRes = await api.post('/v1/categories').send(buildCategoryPayload()).expect(httpStatus.CREATED);
-    const styleCodeRes = await api.post('/v1/style-codes').send(buildStyleCodePayload()).expect(httpStatus.CREATED);
-    const processRes = await api.post('/v1/processes').send(buildProcessPayload()).expect(httpStatus.CREATED);
-    const rawMaterialRes = await api.post('/v1/raw-materials').send(buildRawMaterialPayload()).expect(httpStatus.CREATED);
+    const categoryRes = await api.post('/v1/categories').set(authHeader).send(buildCategoryPayload()).expect(httpStatus.CREATED);
+    const styleCodeRes = await api.post('/v1/style-codes').set(authHeader).send(buildStyleCodePayload()).expect(httpStatus.CREATED);
+    const processRes = await api.post('/v1/processes').set(authHeader).send(buildProcessPayload()).expect(httpStatus.CREATED);
+    const rawMaterialRes = await api.post('/v1/raw-materials').set(authHeader).send(buildRawMaterialPayload()).expect(httpStatus.CREATED);
 
     const payload = buildProductPayload({
       categoryId: categoryRes.body.id,
@@ -117,44 +125,46 @@ describe('Master Catalog API — sidebar modules', () => {
       rawMaterialId: rawMaterialRes.body.id,
     });
 
-    const createRes = await api.post('/v1/products').send(payload).expect(httpStatus.CREATED);
+    const createRes = await api.post('/v1/products').set(authHeader).send(payload).expect(httpStatus.CREATED);
     const productId = createRes.body.id;
     expect(productId).toBeDefined();
     expect(createRes.body.name).toBe(payload.name);
 
-    const listRes = await api.get('/v1/products').query({ search: payload.name, limit: 20 }).expect(httpStatus.OK);
+    const listRes = await api.get('/v1/products').set(authHeader).query({ search: payload.name, limit: 20 }).expect(httpStatus.OK);
     expect(listRes.body.results).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: productId, name: payload.name })])
     );
 
-    await api.get(`/v1/products/${productId}`).expect(httpStatus.OK);
+    await api.get(`/v1/products/${productId}`).set(authHeader).expect(httpStatus.OK);
 
     const updateRes = await api
       .patch(`/v1/products/${productId}`)
+      .set(authHeader)
       .send({ description: 'Updated product description' })
       .expect(httpStatus.OK);
     expect(updateRes.body.description).toBe('Updated product description');
 
-    await api.delete(`/v1/products/${productId}`).expect(httpStatus.NO_CONTENT);
-    await api.get(`/v1/products/${productId}`).expect(httpStatus.NOT_FOUND);
+    await api.delete(`/v1/products/${productId}`).set(authHeader).expect(httpStatus.NO_CONTENT);
+    await api.get(`/v1/products/${productId}`).set(authHeader).expect(httpStatus.NOT_FOUND);
   });
 
   test('Style Codes bulk-import should create records', async () => {
     const styleCodes = [buildStyleCodePayload(), buildStyleCodePayload()];
-    const res = await api.post('/v1/style-codes/bulk-import').send({ styleCodes }).expect(httpStatus.OK);
+    const res = await api.post('/v1/style-codes/bulk-import').set(authHeader).send({ styleCodes }).expect(httpStatus.OK);
 
     expect(res.body.total).toBe(2);
     expect(res.body.created + res.body.updated).toBeGreaterThanOrEqual(1);
   });
 
   test('Items bulk-export should return an array', async () => {
-    const categoryRes = await api.post('/v1/categories').send(buildCategoryPayload()).expect(httpStatus.CREATED);
+    const categoryRes = await api.post('/v1/categories').set(authHeader).send(buildCategoryPayload()).expect(httpStatus.CREATED);
     await api
       .post('/v1/products')
+      .set(authHeader)
       .send(buildProductPayload({ categoryId: categoryRes.body.id }))
       .expect(httpStatus.CREATED);
 
-    const res = await api.get('/v1/products/bulk-export').expect(httpStatus.OK);
+    const res = await api.get('/v1/products/bulk-export').set(authHeader).expect(httpStatus.OK);
     expect(Array.isArray(res.body.products)).toBe(true);
     expect(res.body.total).toBeGreaterThanOrEqual(1);
   });

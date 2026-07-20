@@ -16,10 +16,14 @@ const createUser = async (userBody) => {
 
   if (!userBody.navigation) {
     userBody.navigation = getDefaultNavigationByRole(userBody.role || 'user');
-  } else if (!validateNavigationStructure(normalizeNavigationTree(userBody.navigation))) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'Invalid navigation structure');
   } else {
-    userBody.navigation = normalizeNavigationTree(userBody.navigation);
+    userBody.navigation = mergeNavigation(
+      getDefaultNavigationByRole(userBody.role || 'user'),
+      normalizeNavigationTree(userBody.navigation)
+    );
+    if (!validateNavigationStructure(userBody.navigation)) {
+      throw new ApiError(httpStatus.BAD_REQUEST, 'Invalid navigation structure');
+    }
   }
 
   return User.create(userBody);
@@ -59,11 +63,13 @@ const updateUserById = async (userId, updateBody) => {
   }
 
   if (updateBody.navigation) {
-    const normalized = normalizeNavigationTree(updateBody.navigation);
-    if (!validateNavigationStructure(normalized)) {
+    updateBody.navigation = mergeNavigation(
+      getDefaultNavigationByRole(user.role || 'user'),
+      normalizeNavigationTree(updateBody.navigation)
+    );
+    if (!validateNavigationStructure(updateBody.navigation)) {
       throw new ApiError(httpStatus.BAD_REQUEST, 'Invalid navigation structure');
     }
-    updateBody.navigation = normalized;
   }
 
   Object.assign(user, updateBody);

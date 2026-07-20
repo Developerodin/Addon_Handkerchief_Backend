@@ -17,11 +17,6 @@ const navigationSchema = Joi.object().keys({
     Processes: crudSchema,
     Attributes: crudSchema,
     'Style Codes': crudSchema,
-    'Style Code Pairs': crudSchema,
-    Machines: crudSchema,
-    'Needle Configuration': crudSchema,
-    'Team Master': crudSchema,
-    'Containers Master': crudSchema,
   }),
   Users: crudSchema,
 });
