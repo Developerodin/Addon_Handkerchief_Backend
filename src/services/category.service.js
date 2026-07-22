@@ -2,12 +2,29 @@ import httpStatus from 'http-status';
 import { Category } from '../models/index.js';
 import ApiError from '../utils/ApiError.js';
 
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const assertUniqueCategoryName = async (name, parent, excludeId = null) => {
+  const filter = {
+    name: { $regex: new RegExp(`^${escapeRegex(name.trim())}$`, 'i') },
+    parent: parent || null,
+  };
+  if (excludeId) {
+    filter._id = { $ne: excludeId };
+  }
+  const existing = await Category.findOne(filter);
+  if (existing) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Category already exists under this parent');
+  }
+};
+
 /**
  * Create a category
  * @param {Object} categoryBody
  * @returns {Promise<Category>}
  */
 export const createCategory = async (categoryBody) => {
+  await assertUniqueCategoryName(categoryBody.name, categoryBody.parent);
   return Category.create(categoryBody);
 };
 
@@ -47,7 +64,12 @@ export const queryCategories = async (filter, options, search) => {
     }
   }
   
-  const categories = await Category.paginate(filter, options);
+  const queryOptions = { ...options };
+  if (!queryOptions.populate) {
+    queryOptions.populate = 'parent';
+  }
+
+  const categories = await Category.paginate(filter, queryOptions);
   return categories;
 };
 
@@ -71,6 +93,9 @@ export const updateCategoryById = async (categoryId, updateBody) => {
   if (!category) {
     throw new ApiError(httpStatus.NOT_FOUND, 'Category not found');
   }
+  const name = updateBody.name ?? category.name;
+  const parent = updateBody.parent !== undefined ? updateBody.parent : category.parent;
+  await assertUniqueCategoryName(name, parent, categoryId);
   Object.assign(category, updateBody);
   await category.save();
   return category;
