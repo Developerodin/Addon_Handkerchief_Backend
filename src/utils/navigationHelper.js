@@ -28,13 +28,14 @@ export const DEFAULT_NAVIGATION = {
   Dashboard: { ...EMPTY_CRUD },
   Catalog: buildCatalogDefaults(),
   Users: { ...EMPTY_CRUD },
+  'Help & Support': true,
 };
 
 const adminTemplate = applyCrudTemplate(DEFAULT_NAVIGATION, FULL_CRUD);
 
 export const ROLE_NAVIGATION_TEMPLATES = {
-  super_admin: adminTemplate,
-  admin: adminTemplate,
+  super_admin: { ...adminTemplate, 'Help & Support': true },
+  admin: { ...adminTemplate, 'Help & Support': true },
   accounts: {
     Dashboard: { create: false, read: true, update: false, delete: false },
     Catalog: Object.fromEntries(
@@ -46,6 +47,7 @@ export const ROLE_NAVIGATION_TEMPLATES = {
       ])
     ),
     Users: { ...EMPTY_CRUD },
+    'Help & Support': true,
   },
   user: {
     Dashboard: { create: false, read: true, update: false, delete: false },
@@ -58,6 +60,7 @@ export const ROLE_NAVIGATION_TEMPLATES = {
       ])
     ),
     Users: { ...EMPTY_CRUD },
+    'Help & Support': true,
   },
 };
 
@@ -68,9 +71,15 @@ export const ROLE_NAVIGATION_TEMPLATES = {
 export const getDefaultNavigationByRole = (role) => {
   const template = ROLE_NAVIGATION_TEMPLATES[role];
   if (!template) {
-    return normalizeNavigationTree(DEFAULT_NAVIGATION);
+    return { ...normalizeNavigationTree(DEFAULT_NAVIGATION), 'Help & Support': false };
   }
-  return mergeNavigation(DEFAULT_NAVIGATION, template);
+  const merged = mergeNavigation(DEFAULT_NAVIGATION, template);
+  if (typeof template['Help & Support'] === 'boolean') {
+    merged['Help & Support'] = template['Help & Support'];
+  } else if (!('Help & Support' in merged)) {
+    merged['Help & Support'] = true;
+  }
+  return merged;
 };
 
 const isCrudObject = (value) =>
@@ -124,6 +133,11 @@ export const validateNavigationStructure = (navigation) => {
     if (!validateCrudNode(navigation.Catalog[moduleKey], `Catalog.${moduleKey}`)) {
       return false;
     }
+  }
+
+  if ('Help & Support' in navigation && typeof navigation['Help & Support'] !== 'boolean') {
+    console.error('Validation failed: Help & Support must be boolean');
+    return false;
   }
 
   return true;

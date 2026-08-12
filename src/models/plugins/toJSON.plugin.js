@@ -28,14 +28,32 @@ const toJSON = (schema) => {
         }
       });
 
-      ret.id = ret._id.toString();
+      ret.id = ret._id != null ? ret._id.toString() : ret.id;
       delete ret._id;
       delete ret.__v;
       delete ret.createdAt;
       delete ret.updatedAt;
+
+      // Preserve nested hub file/folder subdocuments on serialization
+      if (ret.file && typeof ret.file === 'object') {
+        if (ret.file._id) {
+          ret.file.id = ret.file._id.toString();
+          delete ret.file._id;
+        }
+        delete ret.file.__v;
+      }
+      if (ret.folder && typeof ret.folder === 'object') {
+        if (ret.folder._id) {
+          ret.folder.id = ret.folder._id.toString();
+          delete ret.folder._id;
+        }
+        delete ret.folder.__v;
+      }
+
       if (transform) {
         return transform(doc, ret, options);
       }
+      return ret;
     },
   });
 };

@@ -32,10 +32,11 @@ const getS3Client = () => {
 };
 
 const storage = multer.memoryStorage();
+const MAX_UPLOAD_FILE_SIZE_BYTES = 25 * 1024 * 1024;
 const upload = multer({
   storage,
   limits: {
-    fileSize: 5 * 1024 * 1024,
+    fileSize: MAX_UPLOAD_FILE_SIZE_BYTES,
   },
   fileFilter: (_req, _file, cb) => {
     cb(null, true);

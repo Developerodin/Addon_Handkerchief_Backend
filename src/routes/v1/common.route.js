@@ -10,7 +10,7 @@ const handleMulterError = (err, req, res, next) => {
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(httpStatus.REQUEST_ENTITY_TOO_LARGE).json({
         success: false,
-        message: 'File too large. Maximum size is 5MB',
+        message: 'File too large. Maximum size is 25MB',
       });
     }
     return res.status(httpStatus.BAD_REQUEST).json({

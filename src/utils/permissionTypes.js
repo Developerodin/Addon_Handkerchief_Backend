@@ -104,6 +104,12 @@ export const mergeNavigation = (target, source) => {
   const normalizedSource = normalizeNavigationTree(source || {});
   const result = { ...normalizedTarget };
 
+  if (typeof source?.['Help & Support'] === 'boolean') {
+    result['Help & Support'] = source['Help & Support'];
+  } else if (typeof target?.['Help & Support'] === 'boolean') {
+    result['Help & Support'] = target['Help & Support'];
+  }
+
   for (const key of Object.keys(normalizedSource)) {
     const sourceValue = normalizedSource[key];
     const targetValue = result[key];

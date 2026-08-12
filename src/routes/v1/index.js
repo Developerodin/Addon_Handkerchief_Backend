@@ -9,6 +9,7 @@ import processRoute from './process.route.js';
 import productRoute from './product.route.js';
 import styleCodeRoute from './styleCode.route.js';
 import commonRoute from './common.route.js';
+import helpSupportRoute from './helpSupport/index.js';
 import config from '../../config/config.js';
 
 const router = express.Router();
@@ -49,6 +50,10 @@ const defaultRoutes = [
   {
     path: '/common',
     route: commonRoute,
+  },
+  {
+    path: '/help-support',
+    route: helpSupportRoute,
   },
 ];
 

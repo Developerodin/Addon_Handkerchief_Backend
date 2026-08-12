@@ -1,10 +1,18 @@
-const basePermissions = ['getUsers'];
+const hubBasePermissions = ['getHelpSupportHub', 'getHelpSupportTickets'];
 
-const adminPermissions = [...basePermissions, 'manageUsers', 'manageNavigation'];
+const managementPermissions = [
+  ...hubBasePermissions,
+  'manageHelpSupportTickets',
+  'getHelpSupportAnalytics',
+  'manageHelpSupportTasks',
+  'getUsers',
+];
+
+const adminPermissions = [...managementPermissions, 'manageUsers', 'manageNavigation', 'deleteHelpSupportTickets'];
 
 const allRoles = {
-  user: [],
-  accounts: ['getUsers'],
+  user: hubBasePermissions,
+  accounts: managementPermissions,
   admin: adminPermissions,
   super_admin: [...adminPermissions, 'manageRoles'],
 };

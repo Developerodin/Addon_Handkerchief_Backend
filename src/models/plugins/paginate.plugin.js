@@ -40,13 +40,17 @@ const paginate = (schema) => {
     let docsPromise = this.find(filter).sort(sort).skip(skip).limit(limit);
 
     if (options.populate) {
-      options.populate.split(',').forEach((populateOption) => {
-        docsPromise = docsPromise.populate(
-          populateOption
-            .split('.')
-            .reverse()
-            .reduce((a, b) => ({ path: b, populate: a }))
-        );
+      const populateEntries = Array.isArray(options.populate)
+        ? options.populate
+        : options.populate.split(',').map((populateOption) =>
+            populateOption
+              .split('.')
+              .reverse()
+              .reduce((a, b) => ({ path: b, populate: a }))
+          );
+
+      populateEntries.forEach((populateOption) => {
+        docsPromise = docsPromise.populate(populateOption);
       });
     }
 
