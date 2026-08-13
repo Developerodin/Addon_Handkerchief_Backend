@@ -11,13 +11,23 @@ const createTask = catchAsync(async (req, res) => {
 const listTasks = catchAsync(async (req, res) => {
   const filter = pick(req.query, ['status', 'priority', 'search']);
   if (filter.search) {
+    const term = filter.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     filter.$or = [
-      { title: { $regex: filter.search, $options: 'i' } },
-      { taskNumber: { $regex: filter.search, $options: 'i' } },
+      { title: { $regex: term, $options: 'i' } },
+      { taskNumber: { $regex: term, $options: 'i' } },
     ];
     delete filter.search;
   }
   if (req.query.assignedTo) filter.assignees = req.query.assignedTo;
+  if (req.query.dateFrom || req.query.dateTo) {
+    filter.createdAt = {};
+    if (req.query.dateFrom) filter.createdAt.$gte = new Date(req.query.dateFrom);
+    if (req.query.dateTo) {
+      const end = new Date(req.query.dateTo);
+      end.setHours(23, 59, 59, 999);
+      filter.createdAt.$lte = end;
+    }
+  }
   const options = pick(req.query, ['sortBy', 'limit', 'page']);
   const result = await taskService.queryTasks(filter, options, req.user);
   res.send(result);

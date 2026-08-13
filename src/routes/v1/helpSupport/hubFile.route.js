@@ -24,6 +24,8 @@ router.post('/upload', (req, res, next) => {
 }, hubUploadFile);
 
 router.get('/root-folders', validate(hubFileValidation.getRootFolders), hubFileController.getRootFolders);
+router.get('/task-documents-folder', hubFileController.getTaskDocumentsFolder);
+router.get('/ticket-documents-folder', hubFileController.getTicketDocumentsFolder);
 router.get('/folder-tree', validate(hubFileValidation.getFolderTree), hubFileController.getFolderTree);
 router.get('/search', validate(hubFileValidation.searchItems), hubFileController.searchItems);
 

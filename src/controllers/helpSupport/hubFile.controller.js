@@ -192,6 +192,16 @@ const getDashboard = catchAsync(async (req, res) => {
   });
 });
 
+const getTaskDocumentsFolder = catchAsync(async (req, res) => {
+  const folder = await hubFileService.ensureTaskDocumentsFolder(req.user._id || req.user.id);
+  res.send(hubFileService.formatHubItem(folder));
+});
+
+const getTicketDocumentsFolder = catchAsync(async (req, res) => {
+  const folder = await hubFileService.ensureTicketDocumentsFolder(req.user._id || req.user.id);
+  res.send(hubFileService.formatHubItem(folder));
+});
+
 export {
   createFolder,
   createFile,
@@ -207,4 +217,6 @@ export {
   deleteMultipleItems,
   searchItems,
   getDashboard,
+  getTaskDocumentsFolder,
+  getTicketDocumentsFolder,
 }; 

@@ -8,6 +8,13 @@ const crudSchema = Joi.object().keys({
   delete: Joi.boolean().required(),
 });
 
+const helpSupportSchema = Joi.object().keys({
+  enabled: Joi.boolean().required(),
+  Files: Joi.boolean().required(),
+  Tasks: Joi.boolean().required(),
+  Tickets: Joi.boolean().required(),
+});
+
 const navigationSchema = Joi.object().keys({
   Dashboard: crudSchema,
   Catalog: Joi.object()
@@ -29,7 +36,7 @@ const navigationSchema = Joi.object().keys({
     })
     .unknown(true),
   Users: crudSchema,
-  'Help & Support': Joi.boolean(),
+  'Help & Support': helpSupportSchema,
 });
 
 const createUser = {

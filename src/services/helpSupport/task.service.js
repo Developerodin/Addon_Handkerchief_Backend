@@ -9,6 +9,7 @@ import {
 import HelpSupportTask, { HelpSupportTaskCounter, TASK_STATUS, TASK_PRIORITY } from '../../models/helpSupport/task.model.js';
 import User from '../../models/user.model.js';
 import { getTeamsForRole } from './taskTeam.service.js';
+import { createTaskCreatedNotification } from './taskNotification.service.js';
 
 const generateTaskNumber = async () => {
   const year = new Date().getFullYear();
@@ -53,7 +54,11 @@ const formatUserRef = (ref) => {
 };
 
 const hydrateUserRefs = async (task) => {
-  const plain = task.toJSON ? task.toJSON() : { ...task };
+  const raw = task.toObject ? task.toObject({ virtuals: true, getters: true }) : task;
+  const plain = task.toJSON ? task.toJSON() : { ...raw };
+  plain.createdAt = raw.createdAt;
+  plain.updatedAt = raw.updatedAt;
+  plain.dueDate = raw.dueDate;
   const ids = new Set();
 
   const collectId = (ref) => {
@@ -175,7 +180,19 @@ const createTask = async (body, user) => {
       }),
     ],
   });
+  await createTaskCreatedNotification(task, user);
   return loadTaskById(task.id);
+};
+
+const serializeTaskForApi = (taskDoc) => {
+  const raw = taskDoc.toObject ? taskDoc.toObject({ virtuals: true, getters: true }) : taskDoc;
+  const json = taskDoc.toJSON ? taskDoc.toJSON() : { ...raw };
+  return {
+    ...json,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+    dueDate: raw.dueDate,
+  };
 };
 
 const queryTasks = async (filter, options, user) => {
@@ -194,7 +211,10 @@ const queryTasks = async (filter, options, user) => {
     populate: 'createdBy,assignees',
     sortBy: options.sortBy || 'createdAt:desc',
   });
-  return result;
+  return {
+    ...result,
+    results: result.results.map(serializeTaskForApi),
+  };
 };
 
 const getTaskById = async (taskId, user) => {

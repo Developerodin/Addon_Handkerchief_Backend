@@ -19,6 +19,9 @@ import HelpSupportTicket from './helpSupport/ticket.model.js';
 import HelpSupportHubFile from './helpSupport/hubFile.model.js';
 import HelpSupportTask from './helpSupport/task.model.js';
 import HelpSupportTaskTeam from './helpSupport/taskTeam.model.js';
+import HelpSupportTaskNotification from './helpSupport/taskNotification.model.js';
+import { HelpSupportNotificationReadState } from './helpSupport/taskNotification.model.js';
+import './yarnCatalogStub.model.js';
 
 export {
   Token,
@@ -42,4 +45,6 @@ export {
   HelpSupportHubFile,
   HelpSupportTask,
   HelpSupportTaskTeam,
+  HelpSupportTaskNotification,
+  HelpSupportNotificationReadState,
 };

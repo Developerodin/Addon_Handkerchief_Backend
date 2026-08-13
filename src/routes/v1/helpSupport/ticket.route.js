@@ -15,7 +15,7 @@ router
   .route('/:ticketId')
   .get(auth('getHelpSupportTickets'), validate(ticketValidation.ticketIdParam), ticketController.getTicket)
   .patch(
-    auth('manageHelpSupportTickets'),
+    auth('getHelpSupportTickets'),
     validate(ticketValidation.updateTicket),
     ticketController.updateTicket
   )

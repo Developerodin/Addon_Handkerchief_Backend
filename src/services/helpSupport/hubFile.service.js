@@ -4,6 +4,18 @@ import ApiError from '../../utils/ApiError.js';
 import HelpSupportHubFile from '../../models/helpSupport/hubFile.model.js';
 import { deleteFileFromS3 } from '../../controllers/common.controller.js';
 
+export const TASK_DOCUMENTS_FOLDER_NAME = 'Task Documents';
+export const TASK_DOCUMENTS_SYSTEM_SLUG = 'task_documents';
+export const TICKET_DOCUMENTS_FOLDER_NAME = 'Ticket Documents';
+export const TICKET_DOCUMENTS_SYSTEM_SLUG = 'ticket_documents';
+
+const isSystemFolder = (folderDoc) =>
+  Boolean(
+    folderDoc?.folder?.metadata?.isSystem ||
+      folderDoc?.folder?.metadata?.systemSlug === TASK_DOCUMENTS_SYSTEM_SLUG ||
+      folderDoc?.folder?.metadata?.systemSlug === TICKET_DOCUMENTS_SYSTEM_SLUG
+  );
+
 /**
  * Normalize a hub file/folder document for API responses.
  * @param {import('mongoose').Document|object|null} doc
@@ -31,6 +43,7 @@ const formatHubItem = (doc) => {
       folder: {
         ...folder,
         parentFolder: folder.parentFolder?.toString?.() ?? folder.parentFolder ?? null,
+        metadata: folder.metadata || {},
       },
       isDeleted: doc.isDeleted ?? raw.isDeleted ?? false,
     };
@@ -52,6 +65,7 @@ const formatHubItem = (doc) => {
       file: {
         ...file,
         parentFolder: file.parentFolder?.toString?.() ?? file.parentFolder ?? null,
+        metadata: file.metadata || {},
       },
       isDeleted: doc.isDeleted ?? raw.isDeleted ?? false,
     };
@@ -134,11 +148,97 @@ const createFile = async (fileBody) => {
       mimeType,
       metadata: metadata || {},
       uploadedBy,
-      parentFolder, // Add parentFolder to file schema
+      parentFolder,
     },
   });
 
   return file;
+};
+
+/**
+ * Find or create the protected Task Documents root folder.
+ * @param {import('mongoose').Types.ObjectId} createdBy
+ */
+const ensureTaskDocumentsFolder = async (createdBy) => {
+  let folder = await HelpSupportHubFile.findOne({
+    type: 'folder',
+    isDeleted: false,
+    'folder.parentFolder': null,
+    $or: [
+      { 'folder.name': TASK_DOCUMENTS_FOLDER_NAME },
+      { 'folder.metadata.systemSlug': TASK_DOCUMENTS_SYSTEM_SLUG },
+    ],
+  });
+
+  if (folder) {
+    if (!folder.folder.metadata?.isSystem) {
+      folder.folder.metadata = {
+        ...(folder.folder.metadata || {}),
+        isSystem: true,
+        systemSlug: TASK_DOCUMENTS_SYSTEM_SLUG,
+      };
+      await folder.save();
+    }
+    return folder;
+  }
+
+  folder = await HelpSupportHubFile.create({
+    type: 'folder',
+    folder: {
+      name: TASK_DOCUMENTS_FOLDER_NAME,
+      description: 'System folder for task attachments. Cannot be deleted.',
+      parentFolder: null,
+      createdBy,
+      isRoot: true,
+      path: TASK_DOCUMENTS_FOLDER_NAME,
+      metadata: { isSystem: true, systemSlug: TASK_DOCUMENTS_SYSTEM_SLUG },
+    },
+  });
+
+  return folder;
+};
+
+/**
+ * Find or create the protected Ticket Documents root folder.
+ * @param {import('mongoose').Types.ObjectId} createdBy
+ */
+const ensureTicketDocumentsFolder = async (createdBy) => {
+  let folder = await HelpSupportHubFile.findOne({
+    type: 'folder',
+    isDeleted: false,
+    'folder.parentFolder': null,
+    $or: [
+      { 'folder.name': TICKET_DOCUMENTS_FOLDER_NAME },
+      { 'folder.metadata.systemSlug': TICKET_DOCUMENTS_SYSTEM_SLUG },
+    ],
+  });
+
+  if (folder) {
+    if (!folder.folder.metadata?.isSystem) {
+      folder.folder.metadata = {
+        ...(folder.folder.metadata || {}),
+        isSystem: true,
+        systemSlug: TICKET_DOCUMENTS_SYSTEM_SLUG,
+      };
+      await folder.save();
+    }
+    return folder;
+  }
+
+  folder = await HelpSupportHubFile.create({
+    type: 'folder',
+    folder: {
+      name: TICKET_DOCUMENTS_FOLDER_NAME,
+      description: 'System folder for ticket attachments. Cannot be deleted.',
+      parentFolder: null,
+      createdBy,
+      isRoot: true,
+      path: TICKET_DOCUMENTS_FOLDER_NAME,
+      metadata: { isSystem: true, systemSlug: TICKET_DOCUMENTS_SYSTEM_SLUG },
+    },
+  });
+
+  return folder;
 };
 
 /**
@@ -329,6 +429,10 @@ const updateFile = async (fileId, updateBody) => {
  */
 const deleteFolder = async (folderId) => {
   const folder = await getFolderById(folderId);
+
+  if (isSystemFolder(folder)) {
+    throw new ApiError(httpStatus.FORBIDDEN, 'This system folder cannot be deleted');
+  }
   
   // Get all descendants
   const descendants = await folder.getAllDescendants();
@@ -500,4 +604,6 @@ export {
   deleteMultipleItems,
   searchItems,
   getFolderTree,
+  ensureTaskDocumentsFolder,
+  ensureTicketDocumentsFolder,
 }; 

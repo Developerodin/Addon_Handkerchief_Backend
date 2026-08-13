@@ -3,10 +3,16 @@ import {
   FULL_CRUD,
   CRUD_KEYS,
   normalizeCrud,
+  normalizeHelpSupport,
   normalizeNavigationTree,
   applyCrudTemplate,
   mergeNavigation,
   hasCrudPermission,
+  FULL_HELP_SUPPORT,
+  EMPTY_HELP_SUPPORT,
+  HELP_SUPPORT_TABS,
+  hasHelpSupportHubAccess,
+  hasHelpSupportTabAccess,
 } from './permissionTypes.js';
 
 export const CATALOG_MODULES = [
@@ -43,15 +49,15 @@ export const DEFAULT_NAVIGATION = {
   Dashboard: { ...EMPTY_CRUD },
   Catalog: buildCatalogDefaults(),
   Users: { ...EMPTY_CRUD },
-  'Help & Support': true,
+  'Help & Support': { ...FULL_HELP_SUPPORT },
 };
 
 const adminTemplate = applyCrudTemplate(DEFAULT_NAVIGATION, FULL_CRUD);
 adminTemplate['Help & Support'] = true;
 
 export const ROLE_NAVIGATION_TEMPLATES = {
-  super_admin: { ...adminTemplate, 'Help & Support': true },
-  admin: { ...adminTemplate, 'Help & Support': true },
+  super_admin: { ...adminTemplate, 'Help & Support': { ...FULL_HELP_SUPPORT } },
+  admin: { ...adminTemplate, 'Help & Support': { ...FULL_HELP_SUPPORT } },
   accounts: {
     Dashboard: { create: false, read: true, update: false, delete: false },
     Catalog: Object.fromEntries(
@@ -63,7 +69,7 @@ export const ROLE_NAVIGATION_TEMPLATES = {
       ])
     ),
     Users: { ...EMPTY_CRUD },
-    'Help & Support': true,
+    'Help & Support': { ...FULL_HELP_SUPPORT },
   },
   user: {
     Dashboard: { create: false, read: true, update: false, delete: false },
@@ -76,7 +82,7 @@ export const ROLE_NAVIGATION_TEMPLATES = {
       ])
     ),
     Users: { ...EMPTY_CRUD },
-    'Help & Support': true,
+    'Help & Support': { ...FULL_HELP_SUPPORT },
   },
 };
 
@@ -87,14 +93,10 @@ export const ROLE_NAVIGATION_TEMPLATES = {
 export const getDefaultNavigationByRole = (role) => {
   const template = ROLE_NAVIGATION_TEMPLATES[role];
   if (!template) {
-    return { ...normalizeNavigationTree(DEFAULT_NAVIGATION), 'Help & Support': false };
+    return { ...normalizeNavigationTree(DEFAULT_NAVIGATION), 'Help & Support': { ...EMPTY_HELP_SUPPORT } };
   }
   const merged = mergeNavigation(DEFAULT_NAVIGATION, template);
-  if (typeof template['Help & Support'] === 'boolean') {
-    merged['Help & Support'] = template['Help & Support'];
-  } else if (!('Help & Support' in merged)) {
-    merged['Help & Support'] = true;
-  }
+  merged['Help & Support'] = normalizeHelpSupport(template['Help & Support'] ?? merged['Help & Support']);
   return merged;
 };
 
@@ -181,9 +183,19 @@ export const validateNavigationStructure = (navigation) => {
     }
   }
 
-  if ('Help & Support' in migrated && typeof migrated['Help & Support'] !== 'boolean') {
-    console.error('Validation failed: Help & Support must be boolean');
-    return false;
+  if ('Help & Support' in navigation) {
+    const hs = normalizeHelpSupport(navigation['Help & Support']);
+    if (typeof hs.enabled !== 'boolean') {
+      console.error('Validation failed: Help & Support.enabled must be boolean');
+      return false;
+    }
+    for (const tab of HELP_SUPPORT_TABS) {
+      if (typeof hs[tab] !== 'boolean') {
+        console.error(`Validation failed: Help & Support.${tab} must be boolean`);
+        return false;
+      }
+    }
+    navigation['Help & Support'] = hs;
   }
 
   return true;
@@ -193,7 +205,12 @@ export {
   EMPTY_CRUD,
   FULL_CRUD,
   normalizeCrud,
+  normalizeHelpSupport,
   normalizeNavigationTree,
   mergeNavigation,
   hasCrudPermission,
+  FULL_HELP_SUPPORT,
+  EMPTY_HELP_SUPPORT,
+  hasHelpSupportHubAccess,
+  hasHelpSupportTabAccess,
 };
