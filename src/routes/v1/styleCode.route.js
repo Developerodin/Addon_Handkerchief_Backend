@@ -6,7 +6,7 @@ import * as styleCodeValidation from '../../validations/styleCode.validation.js'
 import * as styleCodeController from '../../controllers/styleCode.controller.js';
 
 const router = express.Router();
-const STYLE_CODES = 'Catalog.Style Codes';
+const STYLE_CODES = 'Catalog.Style codes';
 
 router
   .route('/')

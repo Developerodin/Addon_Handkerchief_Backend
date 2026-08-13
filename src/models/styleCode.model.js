@@ -27,6 +27,23 @@ const styleCodeSchema = mongoose.Schema(
       type: String,
       trim: true,
     },
+    /** Bundle configuration — default 60 pcs */
+    bundleQty: {
+      type: Number,
+      min: 1,
+      default: 60,
+    },
+    /** Carton configuration — default 120 pcs */
+    cartonQty: {
+      type: Number,
+      min: 1,
+      default: 120,
+    },
+    linkedItem: {
+      type: mongoose.SchemaTypes.ObjectId,
+      ref: 'Product',
+      default: null,
+    },
     status: {
       type: String,
       enum: ['active', 'inactive'],

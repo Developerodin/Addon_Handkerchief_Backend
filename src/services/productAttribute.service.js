@@ -22,14 +22,11 @@ export const createProductAttribute = async (attributeBody) => {
  * @returns {Promise<QueryResult>}
  */
 export const queryProductAttributes = async (filter, options, search) => {
-  // Handle search parameter - search across multiple fields
   if (search && typeof search === 'string' && search.trim()) {
     const searchTerm = search.trim();
-    // Escape special regex characters
     const escapedSearch = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const searchRegex = new RegExp(escapedSearch, 'i');
-    
-    // Build $or query to search across multiple fields
+
     const searchFilter = {
       $or: [
         { name: searchRegex },
@@ -38,8 +35,7 @@ export const queryProductAttributes = async (filter, options, search) => {
         { 'optionValues.name': searchRegex },
       ],
     };
-    
-    // Combine search filter with existing filter using $and
+
     if (Object.keys(filter).length > 0) {
       filter = {
         $and: [filter, searchFilter],
@@ -48,12 +44,13 @@ export const queryProductAttributes = async (filter, options, search) => {
       filter = searchFilter;
     }
   }
-  // attributeType exact filter if provided
-  if (filter.attributeType) {
-    filter.attributeType = filter.attributeType;
+
+  const queryOptions = { ...options };
+  if (!queryOptions.populate) {
+    queryOptions.populate = 'appliesToCategory';
   }
-  
-  const attributes = await ProductAttribute.paginate(filter, options);
+
+  const attributes = await ProductAttribute.paginate(filter, queryOptions);
   return attributes;
 };
 
@@ -63,7 +60,7 @@ export const queryProductAttributes = async (filter, options, search) => {
  * @returns {Promise<ProductAttribute>}
  */
 export const getProductAttributeById = async (id) => {
-  return ProductAttribute.findById(id);
+  return ProductAttribute.findById(id).populate('appliesToCategory');
 };
 
 /**

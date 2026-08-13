@@ -1,6 +1,27 @@
 import mongoose from 'mongoose';
 import { toJSON, paginate } from './plugins/index.js';
 
+export const PROCESS_DEPARTMENTS = [
+  'store',
+  'cutting',
+  'hemming',
+  'checking',
+  'ironing',
+  'packing',
+  'dispatch',
+  'embroidery',
+];
+
+export const PROCESS_MACHINE_TYPES = [
+  'cutting',
+  'half-moon',
+  'vertical-hemming',
+  'horizontal-hemming',
+  'embroidery',
+  'ironing',
+  'none',
+];
+
 const processStepSchema = mongoose.Schema(
   {
     stepTitle: {
@@ -14,12 +35,12 @@ const processStepSchema = mongoose.Schema(
       trim: true,
     },
     duration: {
-      type: Number, // duration in minutes
+      type: Number,
       required: true,
     },
   },
   {
-    _id: true, // Enable automatic _id for each step
+    _id: true,
     timestamps: true,
   }
 );
@@ -31,6 +52,11 @@ const processSchema = mongoose.Schema(
       required: true,
       trim: true,
     },
+    code: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     type: {
       type: String,
       required: true,
@@ -40,6 +66,41 @@ const processSchema = mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+    },
+    department: {
+      type: String,
+      enum: [...PROCESS_DEPARTMENTS, ''],
+      default: '',
+      trim: true,
+    },
+    floor: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    standardTime: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    machineType: {
+      type: String,
+      enum: [...PROCESS_MACHINE_TYPES, ''],
+      default: '',
+      trim: true,
+    },
+    standardRate: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    qcCheckpoint: {
+      type: Boolean,
+      default: false,
+    },
+    reworkEligible: {
+      type: Boolean,
+      default: false,
     },
     sortOrder: {
       type: Number,
@@ -61,10 +122,9 @@ const processSchema = mongoose.Schema(
   }
 );
 
-// add plugin that converts mongoose to json
 processSchema.plugin(toJSON);
 processSchema.plugin(paginate);
 
 const Process = mongoose.model('Process', processSchema);
 
-export default Process; 
+export default Process;

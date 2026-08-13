@@ -6,7 +6,7 @@ import rawMaterialValidation from '../../validations/rawMaterial.validation.js';
 import rawMaterialController from '../../controllers/rawMaterial.controller.js';
 
 const router = express.Router();
-const RAW_MATERIAL = 'Catalog.Raw Material';
+const RAW_MATERIAL = 'Catalog.Packaging materials';
 
 router
   .route('/')

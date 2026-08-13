@@ -121,10 +121,23 @@ const loadTaskById = async (taskId) => {
   return hydrateUserRefs(task);
 };
 
+const userCanViewTask = async (user, taskDoc) => {
+  if (isManagement(user)) return true;
+
+  const role = normalizeRole(user?.role);
+  const teamSlugs = await getTeamsForRole(role);
+  const assigned = (taskDoc.assignedTeams || []).map((slug) => String(slug).toLowerCase());
+  if (teamSlugs.some((slug) => assigned.includes(String(slug).toLowerCase()))) {
+    return true;
+  }
+
+  return canViewTask(user, taskDoc);
+};
+
 const findTaskDocument = async (taskId, user) => {
   const taskDoc = await HelpSupportTask.findOne({ _id: taskId, isDeleted: false });
   if (!taskDoc) throw new ApiError(httpStatus.NOT_FOUND, 'Task not found');
-  if (!canViewTask(user, taskDoc)) throw new ApiError(httpStatus.FORBIDDEN, 'Forbidden');
+  if (!(await userCanViewTask(user, taskDoc))) throw new ApiError(httpStatus.FORBIDDEN, 'Forbidden');
   return taskDoc;
 };
 

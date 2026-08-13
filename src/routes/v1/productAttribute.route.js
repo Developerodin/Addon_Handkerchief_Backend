@@ -6,7 +6,7 @@ import productAttributeValidation from '../../validations/productAttribute.valid
 import productAttributeController from '../../controllers/productAttribute.controller.js';
 
 const router = express.Router();
-const ATTRIBUTES = 'Catalog.Attributes';
+const ATTRIBUTES = 'Catalog.Attributes Master';
 
 router
   .route('/')

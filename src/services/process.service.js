@@ -22,25 +22,25 @@ export const createProcess = async (processBody) => {
  * @returns {Promise<QueryResult>}
  */
 export const queryProcesses = async (filter, options, search) => {
-  // Handle search parameter - search across multiple fields
   if (search && typeof search === 'string' && search.trim()) {
     const searchTerm = search.trim();
-    // Escape special regex characters
     const escapedSearch = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const searchRegex = new RegExp(escapedSearch, 'i');
-    
-    // Build $or query to search across multiple fields
+
     const searchFilter = {
       $or: [
         { name: searchRegex },
+        { code: searchRegex },
         { type: searchRegex },
         { description: searchRegex },
+        { department: searchRegex },
+        { floor: searchRegex },
+        { machineType: searchRegex },
         { 'steps.stepTitle': searchRegex },
         { 'steps.stepDescription': searchRegex },
       ],
     };
-    
-    // Combine search filter with existing filter using $and
+
     if (Object.keys(filter).length > 0) {
       filter = {
         $and: [filter, searchFilter],
@@ -49,7 +49,7 @@ export const queryProcesses = async (filter, options, search) => {
       filter = searchFilter;
     }
   }
-  
+
   const processes = await Process.paginate(filter, options);
   return processes;
 };

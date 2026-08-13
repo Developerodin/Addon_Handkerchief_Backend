@@ -54,6 +54,9 @@ export const applyCrudDependencies = (crud) => {
  * @returns {object}
  */
 export const normalizeNavigationTree = (node) => {
+  if (typeof node === 'boolean') {
+    return node;
+  }
   if (node == null || typeof node !== 'object' || Array.isArray(node)) {
     return { ...EMPTY_CRUD };
   }
@@ -84,7 +87,9 @@ export const applyCrudTemplate = (template, crudTemplate) => {
 
   for (const key of Object.keys(template)) {
     const value = template[key];
-    if (value && typeof value === 'object' && !CRUD_KEYS.some((k) => k in value)) {
+    if (typeof value === 'boolean') {
+      result[key] = value;
+    } else if (value && typeof value === 'object' && !CRUD_KEYS.some((k) => k in value)) {
       result[key] = applyCrudTemplate(value, crudTemplate);
     } else {
       result[key] = { ...crud };
@@ -111,11 +116,16 @@ export const mergeNavigation = (target, source) => {
   }
 
   for (const key of Object.keys(normalizedSource)) {
+    if (key === 'Help & Support') {
+      continue;
+    }
     const sourceValue = normalizedSource[key];
     const targetValue = result[key];
 
-    const sourceIsCrud = CRUD_KEYS.some((k) => k in sourceValue);
-    const targetIsCrud = targetValue && CRUD_KEYS.some((k) => k in targetValue);
+    const sourceIsCrud =
+      sourceValue && typeof sourceValue === 'object' && CRUD_KEYS.some((k) => k in sourceValue);
+    const targetIsCrud =
+      targetValue && typeof targetValue === 'object' && CRUD_KEYS.some((k) => k in targetValue);
 
     if (sourceIsCrud && targetIsCrud) {
       result[key] = applyCrudDependencies({ ...targetValue, ...sourceValue });

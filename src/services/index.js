@@ -4,6 +4,10 @@ export * as tokenService from './token.service.js';
 export * as userService from './user.service.js';
 export * as productAttributeService from './productAttribute.service.js';
 export * as rawMaterialService from './rawMaterial.service.js';
+export * as fabricSupplierService from './fabricSupplier.service.js';
+export * as fabricCatalogService from './fabricCatalog.service.js';
+export * as styleCodeComboService from './styleCodeCombo.service.js';
+
 export * as categoryService from './category.service.js';
 export * as processService from './process.service.js';
 export * as productService from './product.service.js';

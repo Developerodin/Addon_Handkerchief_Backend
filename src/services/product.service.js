@@ -4,7 +4,38 @@ import Product from '../models/product.model.js';
 import StyleCode from '../models/styleCode.model.js';
 import ApiError from '../utils/ApiError.js';
 
-const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const normalizeProductionType = (value) => {
+  if (value === 'embroidery') return 'embroidery';
+  if (value === 'outsourced') return 'outsourced';
+  if (value === 'internal') return 'normal';
+  if (value === 'normal') return 'normal';
+  return 'normal';
+};
+
+const mapBomItems = (bom) =>
+  (Array.isArray(bom) ? bom : [])
+    .map((item) => {
+      const fabricCatalogId =
+        item?.fabricCatalogId ||
+        item?.fabricCatalog ||
+        item?.yarnCatalogId ||
+        item?.yarnCatalog ||
+        item?._id ||
+        item?.id;
+      const quantity = item?.quantity;
+      const normalizedId = fabricCatalogId ? String(fabricCatalogId).trim() : '';
+      if (!normalizedId || !mongoose.Types.ObjectId.isValid(normalizedId)) return null;
+      const parsedQty = typeof quantity === 'number' ? quantity : quantity !== undefined ? parseFloat(quantity) || 0 : 0;
+      const unitCost =
+        typeof item?.unitCost === 'number' ? item.unitCost : item?.unitCost !== undefined ? parseFloat(item.unitCost) || 0 : 0;
+      return {
+        fabricCatalogId: normalizedId,
+        fabricName: item?.fabricName || item?.yarnName || '',
+        quantity: parsedQty < 0 ? 0 : parsedQty,
+        unitCost: unitCost < 0 ? 0 : unitCost,
+      };
+    })
+    .filter(Boolean);
 
 const normalizeStyleCodeIds = (styleCodeIds) => {
   if (!Array.isArray(styleCodeIds)) {
@@ -122,7 +153,15 @@ export const createProduct = async (productBody) => {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Software code already taken');
   }
   const styleCodes = await ensureValidStyleCodes(productBody.styleCodes);
-  return Product.create({ ...productBody, styleCodes });
+  const payload = {
+    ...productBody,
+    styleCodes,
+    productionType: normalizeProductionType(productBody.productionType),
+  };
+  if (Array.isArray(productBody.bom)) {
+    payload.bom = mapBomItems(productBody.bom);
+  }
+  return Product.create(payload);
 };
 
 /**
@@ -269,8 +308,9 @@ export const queryProducts = async (filter, options, search) => {
 export const getProductById = async (id) => {
   return Product.findById(id)
     .populate('category', 'name')
-    .populate('bom.yarnCatalogId', 'yarnName yarnType countSize blend colorFamily')
-    .populate('processes.processId', 'name type');
+    .populate('bom.fabricCatalogId', 'name code colour gsm rate')
+    .populate('rawMaterials.rawMaterialId', 'name type rate unit')
+    .populate('processes.processId', 'name type department');
 };
 
 /**
@@ -291,8 +331,9 @@ export const getProductsByFactoryCodes = async (factoryCodes) => {
 
   const products = await Product.find(filter)
     .populate('category', 'name')
-    .populate('bom.yarnCatalogId', 'yarnName yarnType countSize blend colorFamily')
-    .populate('processes.processId', 'name type')
+    .populate('bom.fabricCatalogId', 'name code colour gsm rate')
+    .populate('rawMaterials.rawMaterialId', 'name type rate unit')
+    .populate('processes.processId', 'name type department')
     .populate('styleCodes')
     .lean();
 
@@ -339,8 +380,9 @@ export const getProductByCode = async (factoryCode, internalCode) => {
   const product = await Product.findOne(filter)
     .populate('category', 'name')
     .populate('styleCodes')
-    .populate('bom.yarnCatalogId', 'yarnName yarnType countSize blend colorFamily')
-    .populate('processes.processId', 'name type');
+    .populate('bom.fabricCatalogId', 'name code colour gsm rate')
+    .populate('rawMaterials.rawMaterialId', 'name type rate unit')
+    .populate('processes.processId', 'name type department');
   
   if (!product) {
     console.log('Product not found with filter:', JSON.stringify(filter));
@@ -368,6 +410,12 @@ export const updateProductById = async (productId, updateBody) => {
     styleCodes = await ensureValidStyleCodes(updateBody.styleCodes);
   }
   const updatePayload = { ...updateBody, ...(styleCodes ? { styleCodes } : {}) };
+  if (updatePayload.productionType !== undefined) {
+    updatePayload.productionType = normalizeProductionType(updatePayload.productionType);
+  }
+  if (Array.isArray(updatePayload.bom)) {
+    updatePayload.bom = mapBomItems(updatePayload.bom);
+  }
 
   // Merge attributes instead of replacing the whole object, so missing keys (e.g. Needles) are preserved
   if (updatePayload.attributes && typeof updatePayload.attributes === 'object' && !Array.isArray(updatePayload.attributes)) {
@@ -506,8 +554,9 @@ export const bulkImportProducts = async (products, batchSize = 50) => {
               if (productData.category !== undefined) $set.category = productData.category || null;
               const softwareCodeVal = productData.softwareCode?.trim() ?? '';
               if (softwareCodeVal) $set.softwareCode = softwareCodeVal;
-              if (productData.productionType === 'outsourced') $set.productionType = 'outsourced';
-              else if (productData.productionType !== undefined) $set.productionType = 'internal';
+              if (productData.productionType !== undefined) {
+                $set.productionType = normalizeProductionType(productData.productionType);
+              }
               if (productData.status !== undefined) $set.status = productData.status || 'active';
 
               const collectedAttributes = collectAttributesForExcel(productData);
@@ -519,16 +568,7 @@ export const bulkImportProducts = async (products, batchSize = 50) => {
               }
               // Only set bom/processes/rawMaterials if explicitly provided in Excel; otherwise leave existing values
               if (Array.isArray(productData.bom) && productData.bom.length > 0) {
-                const bomMapped = productData.bom
-                  .map((item) => {
-                    const yarnCatalogId = item?.yarnCatalogId || item?.yarnCatalog || item?._id || item?.id;
-                    const quantity = item?.quantity;
-                    const normalizedId = yarnCatalogId ? String(yarnCatalogId).trim() : '';
-                    if (!normalizedId || !mongoose.Types.ObjectId.isValid(normalizedId)) return null;
-                    const parsedQty = typeof quantity === 'number' ? quantity : quantity !== undefined ? parseFloat(quantity) || 0 : 0;
-                    return { yarnCatalogId: normalizedId, quantity: parsedQty < 0 ? 0 : parsedQty };
-                  })
-                  .filter(Boolean);
+                const bomMapped = mapBomItems(productData.bom);
                 if (bomMapped.length > 0) $set.bom = bomMapped;
               }
               if (Array.isArray(productData.processes) && productData.processes.length > 0) {
@@ -583,19 +623,7 @@ export const bulkImportProducts = async (products, batchSize = 50) => {
                   : '',
                 category: productData.category || null,
                 attributes: collectAttributesForExcel(productData),
-                bom: Array.isArray(productData.bom) && productData.bom.length > 0
-                  ? productData.bom
-                      .map((item) => {
-                        const yarnCatalogId = item?.yarnCatalogId || item?.yarnCatalog || item?._id || item?.id;
-                        const quantity = item?.quantity;
-                        const normalizedId = yarnCatalogId ? String(yarnCatalogId).trim() : '';
-                        if (!normalizedId) return null;
-                        if (!mongoose.Types.ObjectId.isValid(normalizedId)) return null;
-                        const parsedQty = typeof quantity === 'number' ? quantity : quantity !== undefined ? parseFloat(quantity) || 0 : 0;
-                        return { yarnCatalogId: normalizedId, quantity: parsedQty < 0 ? 0 : parsedQty };
-                      })
-                      .filter(Boolean)
-                  : [],
+                bom: mapBomItems(productData.bom),
                 processes: Array.isArray(productData.processes) && productData.processes.length > 0
                   ? productData.processes
                       .map((item) => {
@@ -624,7 +652,7 @@ export const bulkImportProducts = async (products, batchSize = 50) => {
                       })
                       .filter(Boolean)
                   : [],
-                productionType: productData.productionType === 'outsourced' ? 'outsourced' : 'internal',
+                productionType: normalizeProductionType(productData.productionType),
                 status: 'active',
               };
 
@@ -820,7 +848,7 @@ export const bulkUpsertProducts = async (products, batchSize = 50) => {
                     })
                     .filter(Boolean)
                 : [],
-              productionType: productData.productionType === 'outsourced' ? 'outsourced' : 'internal',
+              productionType: normalizeProductionType(productData.productionType),
               status: 'active',
             };
             const createdProduct = await Product.create(processedData);

@@ -7,6 +7,7 @@ import {
   mergeNavigation,
   validateNavigationStructure,
   normalizeNavigationTree,
+  migrateCatalogNavigation,
 } from '../utils/navigationHelper.js';
 
 const createUser = async (userBody) => {
@@ -17,9 +18,11 @@ const createUser = async (userBody) => {
   if (!userBody.navigation) {
     userBody.navigation = getDefaultNavigationByRole(userBody.role || 'user');
   } else {
-    userBody.navigation = mergeNavigation(
-      getDefaultNavigationByRole(userBody.role || 'user'),
-      normalizeNavigationTree(userBody.navigation)
+    userBody.navigation = migrateCatalogNavigation(
+      mergeNavigation(
+        getDefaultNavigationByRole(userBody.role || 'user'),
+        normalizeNavigationTree(userBody.navigation)
+      )
     );
     if (!validateNavigationStructure(userBody.navigation)) {
       throw new ApiError(httpStatus.BAD_REQUEST, 'Invalid navigation structure');
@@ -63,9 +66,11 @@ const updateUserById = async (userId, updateBody) => {
   }
 
   if (updateBody.navigation) {
-    updateBody.navigation = mergeNavigation(
-      getDefaultNavigationByRole(user.role || 'user'),
-      normalizeNavigationTree(updateBody.navigation)
+    updateBody.navigation = migrateCatalogNavigation(
+      mergeNavigation(
+        getDefaultNavigationByRole(user.role || 'user'),
+        normalizeNavigationTree(updateBody.navigation)
+      )
     );
     if (!validateNavigationStructure(updateBody.navigation)) {
       throw new ApiError(httpStatus.BAD_REQUEST, 'Invalid navigation structure');
@@ -83,9 +88,11 @@ const updateUserNavigationById = async (userId, navigationBody) => {
     throw new ApiError(httpStatus.NOT_FOUND, 'User not found');
   }
 
-  const updatedNavigation = mergeNavigation(
-    mergeNavigation(JSON.parse(JSON.stringify(DEFAULT_NAVIGATION)), user.navigation || {}),
-    navigationBody.navigation
+  const updatedNavigation = migrateCatalogNavigation(
+    mergeNavigation(
+      mergeNavigation(JSON.parse(JSON.stringify(DEFAULT_NAVIGATION)), user.navigation || {}),
+      navigationBody.navigation
+    )
   );
 
   if (!validateNavigationStructure(updatedNavigation)) {

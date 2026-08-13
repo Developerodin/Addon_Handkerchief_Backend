@@ -10,15 +10,26 @@ const crudSchema = Joi.object().keys({
 
 const navigationSchema = Joi.object().keys({
   Dashboard: crudSchema,
-  Catalog: Joi.object().keys({
-    Items: crudSchema,
-    Categories: crudSchema,
-    'Raw Material': crudSchema,
-    Processes: crudSchema,
-    Attributes: crudSchema,
-    'Style Codes': crudSchema,
-  }),
+  Catalog: Joi.object()
+    .keys({
+      Items: crudSchema,
+      Category: crudSchema,
+      'Style codes': crudSchema,
+      'Fabric master': crudSchema,
+      'Fabric Suppliers': crudSchema,
+      'Packaging materials': crudSchema,
+      'Process Master': crudSchema,
+      'Attributes Master': crudSchema,
+      // Legacy keys accepted then migrated in service
+      Categories: crudSchema,
+      'Style Codes': crudSchema,
+      'Raw Material': crudSchema,
+      Processes: crudSchema,
+      Attributes: crudSchema,
+    })
+    .unknown(true),
   Users: crudSchema,
+  'Help & Support': Joi.boolean(),
 });
 
 const createUser = {

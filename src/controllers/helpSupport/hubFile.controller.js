@@ -40,7 +40,7 @@ const createFile = catchAsync(async (req, res) => {
  */
 const getFolder = catchAsync(async (req, res) => {
   const folder = await hubFileService.getFolderById(req.params.folderId);
-  res.send(folder);
+  res.send(hubFileService.formatHubItem(folder));
 });
 
 /**
@@ -50,7 +50,7 @@ const getFolder = catchAsync(async (req, res) => {
  */
 const getFile = catchAsync(async (req, res) => {
   const file = await hubFileService.getFileById(req.params.fileId);
-  res.send(file);
+  res.send(hubFileService.formatHubItem(file));
 });
 
 /**
@@ -95,7 +95,7 @@ const getFolderTree = catchAsync(async (req, res) => {
  */
 const updateFolder = catchAsync(async (req, res) => {
   const folder = await hubFileService.updateFolder(req.params.folderId, req.body);
-  res.send(folder);
+  res.send(hubFileService.formatHubItem(folder));
 });
 
 /**
@@ -105,7 +105,7 @@ const updateFolder = catchAsync(async (req, res) => {
  */
 const updateFile = catchAsync(async (req, res) => {
   const file = await hubFileService.updateFile(req.params.fileId, req.body);
-  res.send(file);
+  res.send(hubFileService.formatHubItem(file));
 });
 
 /**
@@ -156,11 +156,6 @@ const deleteMultipleItems = catchAsync(async (req, res) => {
 const searchItems = catchAsync(async (req, res) => {
   const filter = pick(req.query, ['query', 'type', 'userId']);
   const options = pick(req.query, ['sortBy', 'limit', 'page']);
-  
-  // If no userId specified, use current user's items
-  if (!filter.userId) {
-    filter.userId = req.user.id;
-  }
   
   const result = await hubFileService.searchItems(filter, options);
   res.send(result);

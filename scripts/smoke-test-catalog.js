@@ -10,7 +10,11 @@
  */
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:5000/v1';
+const AUTH_EMAIL = process.env.SMOKE_AUTH_EMAIL || 'superadmin@addon.in';
+const AUTH_PASSWORD = process.env.SMOKE_AUTH_PASSWORD || 'SuperAdmin1';
 const suffix = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+let authHeaders = {};
 
 const log = (msg) => console.log(`[catalog-smoke] ${msg}`);
 const fail = (msg) => {
@@ -21,7 +25,10 @@ const fail = (msg) => {
 async function request(path, { method = 'GET', body } = {}) {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: {
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+      ...authHeaders,
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
 
@@ -66,8 +73,23 @@ async function crudModule(name, basePath, createBody, updateBody, searchTerm) {
   return id;
 }
 
+async function login() {
+  const res = await fetch(`${API_BASE_URL}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: AUTH_EMAIL, password: AUTH_PASSWORD }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status !== 200 || !data.tokens?.access?.token) {
+    fail(`login failed (${res.status}) — run seedSuperAdmin with RESET_SUPER_ADMIN_PASSWORD=true`);
+  }
+  authHeaders = { Authorization: `Bearer ${data.tokens.access.token}` };
+  log(`Logged in as ${AUTH_EMAIL}`);
+}
+
 async function main() {
   log(`API base: ${API_BASE_URL}`);
+  await login();
 
   const categoryName = `Category ${suffix()}`;
   const categoryId = await crudModule(
@@ -166,6 +188,62 @@ async function main() {
   if (productDelete.status !== 204) fail(`Items: delete failed (${productDelete.status})`);
 
   log('PASS Items');
+
+  const machineName = `Machine ${suffix()}`;
+  await crudModule(
+    'Machines',
+    '/machines',
+    { name: machineName, code: `MC-${suffix()}`, machineType: 'cutting', department: 'cutting', status: 'active' },
+    { maintenanceNotes: 'Updated machine' },
+    machineName
+  );
+
+  const workerCode = `WK-${suffix()}`;
+  await crudModule(
+    'Workers',
+    '/workers',
+    { name: `Worker ${suffix()}`, employeeCode: workerCode, department: 'cutting', status: 'active' },
+    { skill: 'Cutting' },
+    workerCode
+  );
+
+  const rackCode = `RK-${suffix()}`;
+  await crudModule(
+    'Storage Racks',
+    '/storage-racks',
+    { code: rackCode, name: `Rack ${suffix()}`, stockType: 'fabric', status: 'active' },
+    { zone: 'A1' },
+    rackCode
+  );
+
+  const containerCode = `CT-${suffix()}`;
+  await crudModule(
+    'Containers',
+    '/containers',
+    { code: containerCode, name: `Container ${suffix()}`, type: 'bundle', status: 'active' },
+    { capacity: 60 },
+    containerCode
+  );
+
+  const deviceName = `Printer ${suffix()}`;
+  const device = await request('/device-registry', {
+    method: 'POST',
+    body: { name: deviceName, deviceType: 'printer', status: 'active' },
+  });
+  if (device.status !== 201 || !device.data?.id) fail(`Device Registry: create failed (${device.status})`);
+  const deviceId = device.data.id;
+
+  const labelName = `Label ${suffix()}`;
+  await crudModule(
+    '/label-templates',
+    { name: labelName, labelType: 'bundle-sticker', printerDevice: deviceId, status: 'active' },
+    { size: '50x30' },
+    labelName
+  );
+
+  const deviceDelete = await request(`/device-registry/${deviceId}`, { method: 'DELETE' });
+  if (deviceDelete.status !== 204) fail(`Device Registry: delete failed (${deviceDelete.status})`);
+
   log('All Master Catalog sidebar modules passed smoke test.');
 }
 

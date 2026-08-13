@@ -1,6 +1,6 @@
 import httpStatus from 'http-status';
 import ApiError from '../utils/ApiError.js';
-import { hasCrudPermission } from '../utils/navigationHelper.js';
+import { hasCrudPermission, migrateCatalogNavigation } from '../utils/navigationHelper.js';
 
 /**
  * Require a CRUD flag on the user's navigation tree (e.g. Catalog.Items + update).
@@ -11,7 +11,7 @@ const requireCrud = (path, action) => (req, res, next) => {
     return next(new ApiError(httpStatus.UNAUTHORIZED, 'Please authenticate'));
   }
 
-  const navigation = req.user.navigation;
+  const navigation = migrateCatalogNavigation(req.user.navigation);
   if (!hasCrudPermission(navigation, path, action)) {
     return next(new ApiError(httpStatus.FORBIDDEN, 'Forbidden'));
   }
@@ -27,7 +27,7 @@ const requireAnyCrud = (path, actions) => (req, res, next) => {
     return next(new ApiError(httpStatus.UNAUTHORIZED, 'Please authenticate'));
   }
 
-  const navigation = req.user.navigation;
+  const navigation = migrateCatalogNavigation(req.user.navigation);
   const allowed = actions.some((action) => hasCrudPermission(navigation, path, action));
   if (!allowed) {
     return next(new ApiError(httpStatus.FORBIDDEN, 'Forbidden'));
@@ -45,7 +45,7 @@ const requireAnyCrudPath = (checks) => (req, res, next) => {
     return next(new ApiError(httpStatus.UNAUTHORIZED, 'Please authenticate'));
   }
 
-  const navigation = req.user.navigation;
+  const navigation = migrateCatalogNavigation(req.user.navigation);
   const allowed = checks.some(({ path, action }) => hasCrudPermission(navigation, path, action));
   if (!allowed) {
     return next(new ApiError(httpStatus.FORBIDDEN, 'Forbidden'));

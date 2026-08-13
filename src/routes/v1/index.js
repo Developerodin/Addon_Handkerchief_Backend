@@ -8,6 +8,10 @@ import categoryRoute from './category.route.js';
 import processRoute from './process.route.js';
 import productRoute from './product.route.js';
 import styleCodeRoute from './styleCode.route.js';
+import styleCodeComboRoute from './styleCodeCombo.route.js';
+import fabricSupplierRoute from './fabricSupplier.route.js';
+import fabricCatalogRoute from './fabricCatalog.route.js';
+import phase3CatalogRoute from './phase3Catalog.route.js';
 import commonRoute from './common.route.js';
 import helpSupportRoute from './helpSupport/index.js';
 import config from '../../config/config.js';
@@ -46,6 +50,22 @@ const defaultRoutes = [
   {
     path: '/style-codes',
     route: styleCodeRoute,
+  },
+  {
+    path: '/style-code-combos',
+    route: styleCodeComboRoute,
+  },
+  {
+    path: '/fabric-suppliers',
+    route: fabricSupplierRoute,
+  },
+  {
+    path: '/fabric-catalogs',
+    route: fabricCatalogRoute,
+  },
+  {
+    path: '/',
+    route: phase3CatalogRoute,
   },
   {
     path: '/common',

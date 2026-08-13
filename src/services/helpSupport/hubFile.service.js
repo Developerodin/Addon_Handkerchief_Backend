@@ -110,20 +110,18 @@ const createFolder = async (folderBody) => {
 const createFile = async (fileBody) => {
   const { fileName, fileUrl, fileKey, parentFolder, uploadedBy, fileSize, mimeType, metadata } = fileBody;
 
-  // Check if file name already exists in the same folder
+  if (!parentFolder) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Files must be uploaded inside a folder');
+  }
+
+  const parent = await HelpSupportHubFile.findById(parentFolder);
+  if (!parent || parent.type !== 'folder' || parent.isDeleted) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Parent folder not found');
+  }
+
   const isNameTaken = await HelpSupportHubFile.isFileNameTaken(fileName, parentFolder);
   if (isNameTaken) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'File name already exists in this folder');
-  }
-
-  // Get parent folder path
-  let path = '';
-  if (parentFolder) {
-    const parent = await HelpSupportHubFile.findById(parentFolder);
-    if (!parent || parent.type !== 'folder') {
-      throw new ApiError(httpStatus.BAD_REQUEST, 'Parent folder not found');
-    }
-    path = parent.folder.path;
   }
 
   const file = await HelpSupportHubFile.create({
@@ -426,23 +424,17 @@ const deleteMultipleItems = async (itemIds) => {
  * @returns {Promise<Object>}
  */
 const searchItems = async (filter, options = {}) => {
+  const escaped = String(filter.query || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const searchFilter = {
     isDeleted: false,
     $or: [
-      { 'folder.name': { $regex: filter.query, $options: 'i' } },
-      { 'file.fileName': { $regex: filter.query, $options: 'i' } },
+      { 'folder.name': { $regex: escaped, $options: 'i' } },
+      { 'file.fileName': { $regex: escaped, $options: 'i' } },
     ],
   };
 
   if (filter.type) {
     searchFilter.type = filter.type;
-  }
-
-  if (filter.userId) {
-    searchFilter.$or = [
-      { 'folder.createdBy': filter.userId },
-      { 'file.uploadedBy': filter.userId },
-    ];
   }
 
   const result = await HelpSupportHubFile.paginate(searchFilter, {
@@ -451,7 +443,10 @@ const searchItems = async (filter, options = {}) => {
     sortBy: options.sortBy || 'type:asc,folder.name:asc,file.fileName:asc',
   });
 
-  return result;
+  return {
+    ...result,
+    results: formatHubList(result.results),
+  };
 };
 
 /**

@@ -6,7 +6,7 @@ import * as categoryValidation from '../../validations/category.validation.js';
 import * as categoryController from '../../controllers/category.controller.js';
 
 const router = express.Router();
-const CATEGORIES = 'Catalog.Categories';
+const CATEGORIES = 'Catalog.Category';
 
 router
   .route('/')

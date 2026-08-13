@@ -15,7 +15,7 @@ const createFile = {
     fileName: Joi.string().required().trim().min(1).max(255),
     fileUrl: Joi.string().required().uri().trim(),
     fileKey: Joi.string().required().trim().min(1),
-    parentFolder: Joi.string().custom(objectId).optional(),
+    parentFolder: Joi.string().custom(objectId).required(),
     fileSize: Joi.number().integer().min(0).optional(),
     mimeType: Joi.string().trim().optional(),
     metadata: Joi.object().optional(),

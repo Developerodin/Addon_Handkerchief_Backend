@@ -11,12 +11,27 @@ import {
 
 export const CATALOG_MODULES = [
   'Items',
-  'Categories',
-  'Raw Material',
-  'Processes',
-  'Attributes',
-  'Style Codes',
+  'Category',
+  'Style codes',
+  'Fabric master',
+  'Fabric Suppliers',
+  'Packaging materials',
+  'Process Master',
+  'Attributes Master',
+  'Machines & Configuration',
+  'Workers / Operators',
+  'Storage Racks',
+  'Containers Master',
+  'Label Templates & Device Registry',
 ];
+
+export const CATALOG_KEY_ALIASES = {
+  Categories: 'Category',
+  'Style Codes': 'Style codes',
+  'Raw Material': 'Packaging materials',
+  Processes: 'Process Master',
+  Attributes: 'Attributes Master',
+};
 
 const buildCatalogDefaults = () =>
   Object.fromEntries(CATALOG_MODULES.map((key) => [key, { ...EMPTY_CRUD }]));
@@ -32,6 +47,7 @@ export const DEFAULT_NAVIGATION = {
 };
 
 const adminTemplate = applyCrudTemplate(DEFAULT_NAVIGATION, FULL_CRUD);
+adminTemplate['Help & Support'] = true;
 
 export const ROLE_NAVIGATION_TEMPLATES = {
   super_admin: { ...adminTemplate, 'Help & Support': true },
@@ -82,6 +98,34 @@ export const getDefaultNavigationByRole = (role) => {
   return merged;
 };
 
+/**
+ * Normalize incoming navigation: map legacy Catalog keys onto current modules.
+ * @param {object} navigation
+ * @returns {object}
+ */
+export const migrateCatalogNavigation = (navigation) => {
+  if (!navigation || typeof navigation !== 'object') {
+    return navigation;
+  }
+  const catalog = { ...(navigation.Catalog || {}) };
+  for (const [legacy, next] of Object.entries(CATALOG_KEY_ALIASES)) {
+    const hasNew =
+      catalog[next] &&
+      typeof catalog[next] === 'object' &&
+      (catalog[next].create || catalog[next].read || catalog[next].update || catalog[next].delete);
+    if (!hasNew && catalog[legacy] != null) {
+      catalog[next] = catalog[legacy];
+    }
+    delete catalog[legacy];
+  }
+  // Drop unknown catalog keys that are not current modules
+  const cleaned = {};
+  for (const key of CATALOG_MODULES) {
+    cleaned[key] = catalog[key] != null ? catalog[key] : { ...EMPTY_CRUD };
+  }
+  return { ...navigation, Catalog: cleaned };
+};
+
 const isCrudObject = (value) =>
   value && typeof value === 'object' && CRUD_KEYS.some((key) => key in value);
 
@@ -108,34 +152,36 @@ export const validateNavigationStructure = (navigation) => {
     return false;
   }
 
+  const migrated = migrateCatalogNavigation(navigation);
+
   const requiredTop = ['Dashboard', 'Catalog', 'Users'];
   for (const key of requiredTop) {
-    if (!(key in navigation)) {
+    if (!(key in migrated)) {
       console.error(`Validation failed: missing ${key}`);
       return false;
     }
   }
 
-  if (!validateCrudNode(navigation.Dashboard, 'Dashboard')) {
+  if (!validateCrudNode(migrated.Dashboard, 'Dashboard')) {
     return false;
   }
 
-  if (!validateCrudNode(navigation.Users, 'Users')) {
+  if (!validateCrudNode(migrated.Users, 'Users')) {
     return false;
   }
 
-  if (!navigation.Catalog || typeof navigation.Catalog !== 'object') {
+  if (!migrated.Catalog || typeof migrated.Catalog !== 'object') {
     console.error('Validation failed: Catalog must be an object');
     return false;
   }
 
   for (const moduleKey of CATALOG_MODULES) {
-    if (!validateCrudNode(navigation.Catalog[moduleKey], `Catalog.${moduleKey}`)) {
+    if (!validateCrudNode(migrated.Catalog[moduleKey], `Catalog.${moduleKey}`)) {
       return false;
     }
   }
 
-  if ('Help & Support' in navigation && typeof navigation['Help & Support'] !== 'boolean') {
+  if ('Help & Support' in migrated && typeof migrated['Help & Support'] !== 'boolean') {
     console.error('Validation failed: Help & Support must be boolean');
     return false;
   }

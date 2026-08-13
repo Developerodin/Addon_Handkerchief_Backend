@@ -6,7 +6,7 @@ import * as processValidation from '../../validations/process.validation.js';
 import * as processController from '../../controllers/process.controller.js';
 
 const router = express.Router();
-const PROCESSES = 'Catalog.Processes';
+const PROCESSES = 'Catalog.Process Master';
 
 router
   .route('/')

@@ -10,12 +10,8 @@ const createRawMaterial = catchAsync(async (req, res) => {
 });
 
 const getRawMaterials = catchAsync(async (req, res) => {
-  const filter = pick(req.query, [
-    'name', 'groupName', 'type', 'brand', 'countSize', 'material', 'color', 'shade', 'unit', 'mrp', 'hsnCode', 'gst', 'articleNo'
-  ]);
-  const options = pick(req.query, [
-    'sortBy', 'limit', 'page'
-  ]);
+  const filter = pick(req.query, ['name', 'type', 'unit', 'status', 'supplier']);
+  const options = pick(req.query, ['sortBy', 'limit', 'page']);
   const search = req.query.search;
   const result = await rawMaterialService.queryRawMaterials(filter, options, search);
   res.send(result);
@@ -24,7 +20,7 @@ const getRawMaterials = catchAsync(async (req, res) => {
 const getRawMaterial = catchAsync(async (req, res) => {
   const material = await rawMaterialService.getRawMaterialById(req.params.materialId);
   if (!material) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'Raw material not found');
+    throw new ApiError(httpStatus.NOT_FOUND, 'Packaging material not found');
   }
   res.send(material);
 });
@@ -45,4 +41,4 @@ export default {
   getRawMaterial,
   updateRawMaterial,
   deleteRawMaterial,
-}; 
+};

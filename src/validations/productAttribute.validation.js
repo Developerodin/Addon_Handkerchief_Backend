@@ -5,8 +5,10 @@ const createProductAttribute = {
   body: Joi.object().keys({
     name: Joi.string().required(),
     attributeType: Joi.string().valid('Manufacturing', 'Warehouse'),
-    type: Joi.string().required().valid('select', 'radio', 'checkbox', 'text', 'textarea'),
+    type: Joi.string().required().valid('select', 'radio', 'checkbox', 'text', 'textarea', 'number'),
     sortOrder: Joi.number().default(0),
+    required: Joi.boolean(),
+    appliesToCategory: Joi.array().items(Joi.string().custom(objectId)).allow(null),
     optionValues: Joi.array().items(
       Joi.object().keys({
         name: Joi.string().required(),
@@ -22,6 +24,7 @@ const getProductAttributes = {
     name: Joi.string(),
     type: Joi.string(),
     attributeType: Joi.string().valid('Manufacturing', 'Warehouse'),
+    required: Joi.boolean(),
     search: Joi.string(),
     sortBy: Joi.string(),
     limit: Joi.number().integer(),
@@ -43,8 +46,10 @@ const updateProductAttribute = {
     .keys({
       name: Joi.string(),
       attributeType: Joi.string().valid('Manufacturing', 'Warehouse'),
-      type: Joi.string().valid('select', 'radio', 'checkbox', 'text', 'textarea'),
+      type: Joi.string().valid('select', 'radio', 'checkbox', 'text', 'textarea', 'number'),
       sortOrder: Joi.number(),
+      required: Joi.boolean(),
+      appliesToCategory: Joi.array().items(Joi.string().custom(objectId)).allow(null),
       optionValues: Joi.array().items(
         Joi.object().keys({
           name: Joi.string().required(),
@@ -68,4 +73,4 @@ export default {
   getProductAttribute,
   updateProductAttribute,
   deleteProductAttribute,
-}; 
+};

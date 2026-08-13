@@ -32,12 +32,22 @@ const productAttributeSchema = mongoose.Schema(
     type: {
       type: String,
       required: true,
-      enum: ['select', 'radio', 'checkbox', 'text', 'textarea'],
+      enum: ['select', 'radio', 'checkbox', 'text', 'textarea', 'number'],
     },
     sortOrder: {
       type: Number,
       default: 0,
     },
+    required: {
+      type: Boolean,
+      default: false,
+    },
+    appliesToCategory: [
+      {
+        type: mongoose.SchemaTypes.ObjectId,
+        ref: 'Category',
+      },
+    ],
     optionValues: [optionValueSchema],
   },
   {
@@ -45,10 +55,9 @@ const productAttributeSchema = mongoose.Schema(
   }
 );
 
-// add plugins
 productAttributeSchema.plugin(toJSON);
 productAttributeSchema.plugin(paginate);
 
 const ProductAttribute = mongoose.model('ProductAttribute', productAttributeSchema);
 
-export default ProductAttribute; 
+export default ProductAttribute;
