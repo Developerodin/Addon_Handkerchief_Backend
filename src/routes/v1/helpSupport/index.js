@@ -6,12 +6,14 @@ import * as analyticsController from '../../../controllers/helpSupport/ticketAna
 import ticketRoute from './ticket.route.js';
 import hubFileRoute from './hubFile.route.js';
 import taskRoute from './task.route.js';
+import notificationRoute from './notification.route.js';
 
 const router = express.Router();
 
 router.use('/files', hubFileRoute);
 router.use('/tasks', taskRoute);
 router.use('/tickets', ticketRoute);
+router.use('/notifications', notificationRoute);
 
 router.get(
   '/analytics/summary',

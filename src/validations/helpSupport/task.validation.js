@@ -73,6 +73,8 @@ const listTasks = {
     sortBy: Joi.string(),
     limit: Joi.number().integer(),
     page: Joi.number().integer(),
+    dateFrom: Joi.date().iso(),
+    dateTo: Joi.date().iso(),
   }),
 };
 

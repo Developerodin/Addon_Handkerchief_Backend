@@ -15,6 +15,101 @@ export const FULL_CRUD = Object.freeze({
 
 export const CRUD_KEYS = ['create', 'read', 'update', 'delete'];
 
+export const HELP_SUPPORT_TABS = ['Files', 'Tasks', 'Tickets'];
+
+export const FULL_HELP_SUPPORT = Object.freeze({
+  enabled: true,
+  Files: true,
+  Tasks: true,
+  Tickets: true,
+});
+
+export const EMPTY_HELP_SUPPORT = Object.freeze({
+  enabled: false,
+  Files: false,
+  Tasks: false,
+  Tickets: false,
+});
+
+/**
+ * @param {boolean|object|null|undefined} value
+ */
+export const normalizeHelpSupport = (value) => {
+  if (value === true) {
+    return { ...FULL_HELP_SUPPORT };
+  }
+  if (value === false || value == null) {
+    return { ...EMPTY_HELP_SUPPORT };
+  }
+  if (typeof value === 'object') {
+    const enabled = Boolean(value.enabled);
+    if (!enabled) {
+      return { ...EMPTY_HELP_SUPPORT };
+    }
+    return {
+      enabled: true,
+      Files: Boolean(value.Files),
+      Tasks: Boolean(value.Tasks),
+      Tickets: Boolean(value.Tickets),
+    };
+  }
+  return { ...EMPTY_HELP_SUPPORT };
+};
+
+const HUB_TAB_SLUG_TO_KEY = {
+  files: 'Files',
+  tasks: 'Tasks',
+  tickets: 'Tickets',
+};
+
+/**
+ * Whether Help & Support hub is enabled with at least one tab.
+ * @param {object|null|undefined} navigation
+ * @returns {boolean}
+ */
+export const hasHelpSupportHubAccess = (navigation) => {
+  const hs = normalizeHelpSupport(navigation?.['Help & Support']);
+  return hs.enabled && (hs.Files || hs.Tasks || hs.Tickets);
+};
+
+/**
+ * Whether a specific Help & Support tab is allowed.
+ * @param {object|null|undefined} navigation
+ * @param {'files'|'tasks'|'tickets'} tabSlug
+ * @returns {boolean}
+ */
+export const hasHelpSupportTabAccess = (navigation, tabSlug) => {
+  const hs = normalizeHelpSupport(navigation?.['Help & Support']);
+  if (!hs.enabled) return false;
+  const key = HUB_TAB_SLUG_TO_KEY[tabSlug];
+  if (!key) return false;
+  return Boolean(hs[key]);
+};
+
+const mergeHelpSupport = (target, source) => {
+  const normalizedTarget = normalizeHelpSupport(target);
+  if (source == null) return normalizedTarget;
+
+  if (typeof source === 'boolean') {
+    return normalizeHelpSupport(source);
+  }
+
+  const normalizedSource = normalizeHelpSupport(source);
+  const enabled =
+    Object.prototype.hasOwnProperty.call(source, 'enabled') ? normalizedSource.enabled : normalizedTarget.enabled;
+
+  if (!enabled) {
+    return { ...EMPTY_HELP_SUPPORT };
+  }
+
+  return {
+    enabled: true,
+    Files: Object.prototype.hasOwnProperty.call(source, 'Files') ? normalizedSource.Files : normalizedTarget.Files,
+    Tasks: Object.prototype.hasOwnProperty.call(source, 'Tasks') ? normalizedSource.Tasks : normalizedTarget.Tasks,
+    Tickets: Object.prototype.hasOwnProperty.call(source, 'Tickets') ? normalizedSource.Tickets : normalizedTarget.Tickets,
+  };
+};
+
 /**
  * @param {boolean|object} value
  * @returns {object}
@@ -67,7 +162,11 @@ export const normalizeNavigationTree = (node) => {
 
   const result = {};
   for (const key of keys) {
-    result[key] = normalizeNavigationTree(node[key]);
+    if (key === 'Help & Support') {
+      result[key] = normalizeHelpSupport(node[key]);
+    } else {
+      result[key] = normalizeNavigationTree(node[key]);
+    }
   }
   return result;
 };
@@ -83,6 +182,10 @@ export const applyCrudTemplate = (template, crudTemplate) => {
   const result = {};
 
   for (const key of Object.keys(template)) {
+    if (key === 'Help & Support') {
+      result[key] = normalizeHelpSupport(template[key]);
+      continue;
+    }
     const value = template[key];
     if (value && typeof value === 'object' && !CRUD_KEYS.some((k) => k in value)) {
       result[key] = applyCrudTemplate(value, crudTemplate);
@@ -104,13 +207,13 @@ export const mergeNavigation = (target, source) => {
   const normalizedSource = normalizeNavigationTree(source || {});
   const result = { ...normalizedTarget };
 
-  if (typeof source?.['Help & Support'] === 'boolean') {
-    result['Help & Support'] = source['Help & Support'];
-  } else if (typeof target?.['Help & Support'] === 'boolean') {
-    result['Help & Support'] = target['Help & Support'];
-  }
+  result['Help & Support'] = mergeHelpSupport(
+    target?.['Help & Support'] ?? normalizedTarget['Help & Support'],
+    source?.['Help & Support'] ?? normalizedSource['Help & Support']
+  );
 
   for (const key of Object.keys(normalizedSource)) {
+    if (key === 'Help & Support') continue;
     const sourceValue = normalizedSource[key];
     const targetValue = result[key];
 

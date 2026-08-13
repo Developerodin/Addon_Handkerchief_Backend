@@ -19,6 +19,7 @@ import HelpSupportTicket, {
   REOPEN_WINDOW_DAYS,
 } from '../../models/helpSupport/ticket.model.js';
 import User from '../../models/user.model.js';
+import { createTicketAssignedNotification } from './taskNotification.service.js';
 
 const POPULATE_FIELDS = 'name email role';
 const TICKET_POPULATE = [
@@ -229,25 +230,39 @@ export const getTicketById = async (ticketId, user) => {
  * @param {{ _id: import('mongoose').Types.ObjectId, role: string }} user
  */
 export const updateTicketById = async (ticketId, updateBody, user) => {
-  if (!isHelpSupportAgent(user)) {
-    throw new ApiError(httpStatus.FORBIDDEN, 'Only agents can update tickets');
-  }
-
   const ticket = await findTicketDocument(ticketId);
   if (!ticket) {
     throw new ApiError(httpStatus.NOT_FOUND, 'Ticket not found');
   }
 
-  const allowed = ['title', 'description', 'pointsToBeCovered', 'priority', 'category', 'tags', 'assignedTo', 'slaDueAt', 'attachments'];
-  allowed.forEach((key) => {
-    if (updateBody[key] !== undefined) {
-      ticket[key] = updateBody[key];
+  const userId = (user._id || user.id)?.toString();
+  const isAgent = isHelpSupportAgent(user);
+  const isRaiser = ticket.raisedBy?.toString() === userId;
+
+  if (!isAgent && !isRaiser) {
+    throw new ApiError(httpStatus.FORBIDDEN, 'You cannot update this ticket');
+  }
+
+  if (!isAgent) {
+    const keys = Object.keys(updateBody);
+    if (!keys.length || keys.some((key) => key !== 'attachments')) {
+      throw new ApiError(httpStatus.FORBIDDEN, 'Only agents can update ticket details');
     }
-  });
+    if (updateBody.attachments !== undefined) {
+      ticket.attachments = updateBody.attachments;
+    }
+  } else {
+    const allowed = ['title', 'description', 'pointsToBeCovered', 'priority', 'category', 'tags', 'assignedTo', 'slaDueAt', 'attachments'];
+    allowed.forEach((key) => {
+      if (updateBody[key] !== undefined) {
+        ticket[key] = updateBody[key];
+      }
+    });
+  }
 
   await ticket.save();
   await ticket.populate(TICKET_POPULATE).execPopulate();
-  return serializeTicket(ticket);
+  return serializeTicket(ticket, { hideInternalComments: !isHelpSupportAgent(user) });
 };
 
 /**
@@ -429,6 +444,9 @@ export const assignTicket = async (ticketId, body, user) => {
   }
 
   await ticket.save();
+  if (assigneeId) {
+    await createTicketAssignedNotification(ticket, assigneeId, user);
+  }
   await ticket.populate(TICKET_POPULATE).execPopulate();
   return serializeTicket(ticket);
 };
