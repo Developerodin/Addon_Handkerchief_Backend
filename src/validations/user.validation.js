@@ -10,9 +10,9 @@ const crudSchema = Joi.object().keys({
 
 const helpSupportSchema = Joi.object().keys({
   enabled: Joi.boolean().required(),
-  Files: Joi.boolean().required(),
-  Tasks: Joi.boolean().required(),
-  Tickets: Joi.boolean().required(),
+  Files: crudSchema,
+  Tasks: crudSchema,
+  Tickets: crudSchema,
 });
 
 const navigationSchema = Joi.object().keys({

@@ -1,3 +1,5 @@
+import { hasCrudPermission, migrateCatalogNavigation } from './navigationHelper.js';
+
 /** Super-admin email with full hub management access */
 export const HELP_SUPPORT_SUPER_EMAIL = 'admin@addon.in';
 
@@ -57,11 +59,15 @@ export const isDevTeam = (user) => {
 export const isHelpSupportAgent = isManagement;
 
 /**
- * Whether the user may delete help & support tickets (super email only).
- * @param {{ email?: string }} user
+ * Whether the user may delete help & support tickets (navigation Tickets.delete).
+ * @param {{ email?: string, navigation?: object }} user
  * @returns {boolean}
  */
-export const canDeleteHelpSupportTicket = (user) => isSuperSupportEmail(user);
+export const canDeleteHelpSupportTicket = (user) => {
+  if (isSuperSupportEmail(user)) return true;
+  const navigation = migrateCatalogNavigation(user?.navigation);
+  return hasCrudPermission(navigation, 'Help & Support.Tickets', 'delete');
+};
 
 /**
  * Whether the user has full admin hub powers.
@@ -138,7 +144,7 @@ export const hasHelpSupportApiAccess = (user, requiredRights) => {
     return false;
   }
   if (requiredRights.includes('deleteHelpSupportTickets')) {
-    return canDeleteHelpSupportTicket(user);
+    return isManagement(user) || isDevTeam(user);
   }
   if (requiredRights.includes('manageHelpSupportTasks')) {
     return canManageTasks(user);

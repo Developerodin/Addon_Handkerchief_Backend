@@ -266,13 +266,13 @@ export const updateTicketById = async (ticketId, updateBody, user) => {
 };
 
 /**
- * Soft-delete a ticket (super admin email only).
+ * Soft-delete a ticket (requires Tickets.delete navigation permission).
  * @param {string} ticketId
- * @param {{ role: string, email?: string }} user
+ * @param {{ role: string, email?: string, navigation?: object }} user
  */
 export const deleteTicketById = async (ticketId, user) => {
   if (!canDeleteHelpSupportTicket(user)) {
-    throw new ApiError(httpStatus.FORBIDDEN, 'Only the super admin can delete tickets');
+    throw new ApiError(httpStatus.FORBIDDEN, 'You do not have permission to delete tickets');
   }
 
   const ticket = await findTicketDocument(ticketId);

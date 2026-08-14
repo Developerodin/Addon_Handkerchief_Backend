@@ -190,8 +190,7 @@ export const validateNavigationStructure = (navigation) => {
       return false;
     }
     for (const tab of HELP_SUPPORT_TABS) {
-      if (typeof hs[tab] !== 'boolean') {
-        console.error(`Validation failed: Help & Support.${tab} must be boolean`);
+      if (!validateCrudNode(hs[tab], `Help & Support.${tab}`)) {
         return false;
       }
     }

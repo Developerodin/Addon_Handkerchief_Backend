@@ -19,17 +19,31 @@ export const HELP_SUPPORT_TABS = ['Files', 'Tasks', 'Tickets'];
 
 export const FULL_HELP_SUPPORT = Object.freeze({
   enabled: true,
-  Files: true,
-  Tasks: true,
-  Tickets: true,
+  Files: { ...FULL_CRUD },
+  Tasks: { ...FULL_CRUD },
+  Tickets: { ...FULL_CRUD },
 });
 
 export const EMPTY_HELP_SUPPORT = Object.freeze({
   enabled: false,
-  Files: false,
-  Tasks: false,
-  Tickets: false,
+  Files: { ...EMPTY_CRUD },
+  Tasks: { ...EMPTY_CRUD },
+  Tickets: { ...EMPTY_CRUD },
 });
+
+/**
+ * @param {boolean|object|null|undefined} value
+ * @returns {object}
+ */
+const normalizeHelpSupportTab = (value) => {
+  if (value === true) {
+    return { ...FULL_CRUD };
+  }
+  if (value === false || value == null) {
+    return { ...EMPTY_CRUD };
+  }
+  return applyCrudDependencies(normalizeCrud(value));
+};
 
 /**
  * @param {boolean|object|null|undefined} value
@@ -48,9 +62,9 @@ export const normalizeHelpSupport = (value) => {
     }
     return {
       enabled: true,
-      Files: Boolean(value.Files),
-      Tasks: Boolean(value.Tasks),
-      Tickets: Boolean(value.Tickets),
+      Files: normalizeHelpSupportTab(value.Files),
+      Tasks: normalizeHelpSupportTab(value.Tasks),
+      Tickets: normalizeHelpSupportTab(value.Tickets),
     };
   }
   return { ...EMPTY_HELP_SUPPORT };
@@ -63,27 +77,34 @@ const HUB_TAB_SLUG_TO_KEY = {
 };
 
 /**
- * Whether Help & Support hub is enabled with at least one tab.
- * @param {object|null|undefined} navigation
+ * Whether Help & Support hub is enabled with at least one tab read.
+ * @param {object|boolean|null|undefined} value
  * @returns {boolean}
  */
-export const hasHelpSupportHubAccess = (navigation) => {
-  const hs = normalizeHelpSupport(navigation?.['Help & Support']);
-  return hs.enabled && (hs.Files || hs.Tasks || hs.Tickets);
+export const hasHelpSupportHubAccess = (value) => {
+  const hs = normalizeHelpSupport(value);
+  return hs.enabled && HELP_SUPPORT_TABS.some((tab) => hs[tab].read);
 };
 
 /**
  * Whether a specific Help & Support tab is allowed.
- * @param {object|null|undefined} navigation
+ * @param {object|boolean|null|undefined} value
  * @param {'files'|'tasks'|'tickets'} tabSlug
  * @returns {boolean}
  */
-export const hasHelpSupportTabAccess = (navigation, tabSlug) => {
-  const hs = normalizeHelpSupport(navigation?.['Help & Support']);
+export const hasHelpSupportTabAccess = (value, tabSlug) => {
+  const hs = normalizeHelpSupport(value);
   if (!hs.enabled) return false;
   const key = HUB_TAB_SLUG_TO_KEY[tabSlug];
   if (!key) return false;
-  return Boolean(hs[key]);
+  return Boolean(hs[key].read);
+};
+
+const mergeHelpSupportTab = (targetTab, sourceTab) => {
+  const target = normalizeHelpSupportTab(targetTab);
+  if (sourceTab == null) return target;
+  const source = normalizeHelpSupportTab(sourceTab);
+  return applyCrudDependencies({ ...target, ...source });
 };
 
 const mergeHelpSupport = (target, source) => {
@@ -104,9 +125,15 @@ const mergeHelpSupport = (target, source) => {
 
   return {
     enabled: true,
-    Files: Object.prototype.hasOwnProperty.call(source, 'Files') ? normalizedSource.Files : normalizedTarget.Files,
-    Tasks: Object.prototype.hasOwnProperty.call(source, 'Tasks') ? normalizedSource.Tasks : normalizedTarget.Tasks,
-    Tickets: Object.prototype.hasOwnProperty.call(source, 'Tickets') ? normalizedSource.Tickets : normalizedTarget.Tickets,
+    Files: Object.prototype.hasOwnProperty.call(source, 'Files')
+      ? mergeHelpSupportTab(normalizedTarget.Files, source.Files)
+      : normalizedTarget.Files,
+    Tasks: Object.prototype.hasOwnProperty.call(source, 'Tasks')
+      ? mergeHelpSupportTab(normalizedTarget.Tasks, source.Tasks)
+      : normalizedTarget.Tasks,
+    Tickets: Object.prototype.hasOwnProperty.call(source, 'Tickets')
+      ? mergeHelpSupportTab(normalizedTarget.Tickets, source.Tickets)
+      : normalizedTarget.Tickets,
   };
 };
 
@@ -242,7 +269,7 @@ export const mergeNavigation = (target, source) => {
 };
 
 /**
- * Check CRUD permission at dot path (e.g. Catalog.Items).
+ * Check CRUD permission at dot path (e.g. Catalog.Items or Help & Support.Files).
  * @param {object} navigation
  * @param {string} path
  * @param {'create'|'read'|'update'|'delete'} action
@@ -250,6 +277,19 @@ export const mergeNavigation = (target, source) => {
  */
 export const hasCrudPermission = (navigation, path, action) => {
   const keys = path.split('.');
+
+  if (keys[0] === 'Help & Support') {
+    const hs = normalizeHelpSupport(navigation?.['Help & Support']);
+    if (!hs.enabled) return false;
+    if (keys.length === 1) {
+      return HELP_SUPPORT_TABS.some((tab) => hs[tab][action]);
+    }
+    const tab = keys[1];
+    if (!HELP_SUPPORT_TABS.includes(tab)) return false;
+    const crud = applyCrudDependencies(normalizeCrud(hs[tab]));
+    return Boolean(crud[action]);
+  }
+
   let current = navigation;
 
   for (const key of keys) {
