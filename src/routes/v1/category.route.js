@@ -9,6 +9,10 @@ const router = express.Router();
 const CATEGORIES = 'Catalog.Category';
 
 router
+  .route('/tree')
+  .get(auth(), itemsReferenceRead(CATEGORIES), validate(categoryValidation.getCategoryTree), categoryController.getCategoryTree);
+
+router
   .route('/')
   .post(auth(), requireCrud(CATEGORIES, 'create'), validate(categoryValidation.createCategory), categoryController.createCategory)
   .get(auth(), itemsReferenceRead(CATEGORIES), validate(categoryValidation.getCategories), categoryController.getCategories);

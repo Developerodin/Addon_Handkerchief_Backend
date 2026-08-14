@@ -24,6 +24,12 @@ export const getCategories = {
   }),
 };
 
+export const getCategoryTree = {
+  query: Joi.object().keys({
+    maxDepth: Joi.number().integer().min(1).max(3),
+  }),
+};
+
 export const getCategory = {
   params: Joi.object().keys({
     categoryId: Joi.string().custom(objectId),

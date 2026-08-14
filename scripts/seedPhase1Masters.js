@@ -37,12 +37,6 @@ const PROCESSES = [
   { name: 'Embroidery', code: 'EMB', type: 'embroidery', department: 'embroidery', machineType: 'embroidery', sortOrder: 9 },
 ];
 
-const CATEGORIES = [
-  { name: 'Handkerchief', description: 'Finished handkerchief products', sortOrder: 1 },
-  { name: 'Plain', description: 'Normal / plain handkerchief', sortOrder: 2 },
-  { name: 'Embroidery', description: 'Embroidery handkerchief', sortOrder: 3 },
-];
-
 async function main() {
   await mongoose.connect(config.mongoose.url, config.mongoose.options);
   console.log('Connected');
@@ -51,13 +45,38 @@ async function main() {
   await ProductAttribute.deleteMany({ name: new RegExp(`^${SAMPLE_TAG}`) });
   await Process.deleteMany({ description: new RegExp(SAMPLE_TAG) });
 
-  for (const cat of CATEGORIES) {
-    await Category.create({
-      ...cat,
-      description: `${cat.description} ${SAMPLE_TAG}`,
-      status: 'active',
-    });
-  }
+  const root = await Category.create({
+    name: 'Handkerchief',
+    description: `Finished handkerchief products ${SAMPLE_TAG}`,
+    sortOrder: 1,
+    status: 'active',
+  });
+
+  const plain = await Category.create({
+    name: 'Plain',
+    parent: root._id,
+    description: `Normal / plain handkerchief ${SAMPLE_TAG}`,
+    sortOrder: 1,
+    status: 'active',
+  });
+
+  const embroidery = await Category.create({
+    name: 'Embroidery',
+    parent: root._id,
+    description: `Embroidery handkerchief ${SAMPLE_TAG}`,
+    sortOrder: 2,
+    status: 'active',
+  });
+
+  await Category.create({
+    name: 'Floral',
+    parent: embroidery._id,
+    description: `Floral embroidery styles ${SAMPLE_TAG}`,
+    sortOrder: 1,
+    status: 'active',
+  });
+
+  console.log('Categories seeded:', { root: root.name, children: [plain.name, embroidery.name], grandchild: 'Floral' });
 
   let sort = 1;
   for (const attr of ATTRIBUTES) {
