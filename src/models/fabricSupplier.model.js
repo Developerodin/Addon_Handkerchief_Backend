@@ -11,18 +11,43 @@ const bankDetailsSchema = mongoose.Schema(
   { _id: false }
 );
 
+const fabricDetailSchema = mongoose.Schema(
+  {
+    fabricCatalogId: {
+      type: mongoose.SchemaTypes.ObjectId,
+      ref: 'FabricCatalog',
+      required: true,
+    },
+    fabricName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    fabricSortNo: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    fabricTypeName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    colourName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+  },
+  { _id: false }
+);
+
 const fabricSupplierSchema = mongoose.Schema(
   {
     name: {
       type: String,
       required: true,
       trim: true,
-    },
-    code: {
-      type: String,
-      trim: true,
-      uppercase: true,
-      default: '',
     },
     contactPerson: {
       type: String,
@@ -76,10 +101,14 @@ const fabricSupplierSchema = mongoose.Schema(
       trim: true,
       default: '',
     },
-    leadTimeDays: {
-      type: Number,
-      min: 0,
-      default: 0,
+    fabricMill: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    fabricDetails: {
+      type: [fabricDetailSchema],
+      default: [],
     },
     bankDetails: {
       type: bankDetailsSchema,
@@ -97,7 +126,6 @@ const fabricSupplierSchema = mongoose.Schema(
 );
 
 fabricSupplierSchema.index({ name: 1 });
-fabricSupplierSchema.index({ code: 1 }, { unique: true, sparse: true });
 
 fabricSupplierSchema.plugin(toJSON);
 fabricSupplierSchema.plugin(paginate);

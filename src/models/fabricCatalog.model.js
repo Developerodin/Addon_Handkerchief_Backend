@@ -8,48 +8,87 @@ const fabricCatalogSchema = mongoose.Schema(
       required: true,
       trim: true,
     },
-    code: {
+    fabricSortNo: {
       type: String,
       trim: true,
-      uppercase: true,
       default: '',
     },
     fabricType: {
+      type: mongoose.SchemaTypes.ObjectId,
+      ref: 'FabricType',
+      default: null,
+    },
+    fabricTypeName: {
       type: String,
       trim: true,
       default: '',
     },
-    composition: {
+    color: {
+      type: mongoose.SchemaTypes.ObjectId,
+      ref: 'FabricColor',
+      default: null,
+    },
+    colourName: {
       type: String,
       trim: true,
       default: '',
     },
-    gsm: {
+    quality: {
+      type: mongoose.SchemaTypes.ObjectId,
+      ref: 'FabricQuality',
+      default: null,
+    },
+    qualityName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    yarnCount: {
+      type: mongoose.SchemaTypes.ObjectId,
+      ref: 'FabricYarnCount',
+      default: null,
+    },
+    yarnCountName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    construction: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    weave: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    glm: {
       type: Number,
       min: 0,
       default: 0,
     },
-    width: {
+    glmMeasurement: {
+      type: mongoose.SchemaTypes.ObjectId,
+      ref: 'FabricMeasurement',
+      default: null,
+    },
+    glmMeasurementName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    finishedWidth: {
       type: Number,
       min: 0,
       default: 0,
     },
-    colour: {
-      type: String,
-      trim: true,
-      default: '',
+    finishedWidthMeasurement: {
+      type: mongoose.SchemaTypes.ObjectId,
+      ref: 'FabricMeasurement',
+      default: null,
     },
-    shade: {
-      type: String,
-      trim: true,
-      default: '',
-    },
-    pantone: {
-      type: String,
-      trim: true,
-      default: '',
-    },
-    design: {
+    finishedWidthMeasurementName: {
       type: String,
       trim: true,
       default: '',
@@ -74,29 +113,6 @@ const fabricCatalogSchema = mongoose.Schema(
       min: 0,
       default: 0,
     },
-    supplier: {
-      type: mongoose.SchemaTypes.ObjectId,
-      ref: 'FabricSupplier',
-      default: null,
-    },
-    supplierName: {
-      type: String,
-      trim: true,
-      default: '',
-    },
-    /** Unit of measure notes: rolls + kg + metres */
-    uomRolls: {
-      type: Boolean,
-      default: true,
-    },
-    uomKg: {
-      type: Boolean,
-      default: true,
-    },
-    uomMetres: {
-      type: Boolean,
-      default: true,
-    },
     status: {
       type: String,
       enum: ['active', 'inactive'],
@@ -114,7 +130,11 @@ const fabricCatalogSchema = mongoose.Schema(
 );
 
 fabricCatalogSchema.index({ name: 1 });
-fabricCatalogSchema.index({ code: 1 }, { unique: true, sparse: true });
+fabricCatalogSchema.index({ fabricSortNo: 1 }, { unique: true, sparse: true });
+fabricCatalogSchema.index({ fabricType: 1 });
+fabricCatalogSchema.index({ color: 1 });
+fabricCatalogSchema.index({ quality: 1 });
+fabricCatalogSchema.index({ yarnCount: 1 });
 
 fabricCatalogSchema.plugin(toJSON);
 fabricCatalogSchema.plugin(paginate);

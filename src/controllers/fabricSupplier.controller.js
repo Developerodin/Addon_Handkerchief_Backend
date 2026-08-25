@@ -10,7 +10,7 @@ export const createFabricSupplier = catchAsync(async (req, res) => {
 });
 
 export const getFabricSuppliers = catchAsync(async (req, res) => {
-  const filter = pick(req.query, ['name', 'code', 'status']);
+  const filter = pick(req.query, ['name', 'status']);
   const options = pick(req.query, ['sortBy', 'limit', 'page']);
   const result = await fabricSupplierService.queryFabricSuppliers(filter, options, req.query.search);
   res.send(result);

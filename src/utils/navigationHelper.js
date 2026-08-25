@@ -13,6 +13,7 @@ import {
   HELP_SUPPORT_TABS,
   hasHelpSupportHubAccess,
   hasHelpSupportTabAccess,
+  FABRIC_LOOKUP_MODULES,
 } from './permissionTypes.js';
 
 export const CATALOG_MODULES = [
@@ -20,6 +21,11 @@ export const CATALOG_MODULES = [
   'Category',
   'Style codes',
   'Fabric master',
+  'Fabric Type',
+  'Fabric Color',
+  'Fabric Quality',
+  'Fabric Yarn/Count',
+  'Fabric Measurement',
   'Fabric Suppliers',
   'Packaging materials',
   'Process Master',
@@ -38,6 +44,8 @@ export const CATALOG_KEY_ALIASES = {
   Processes: 'Process Master',
   Attributes: 'Attributes Master',
 };
+
+export { FABRIC_LOOKUP_MODULES };
 
 const buildCatalogDefaults = () =>
   Object.fromEntries(CATALOG_MODULES.map((key) => [key, { ...EMPTY_CRUD }]));
@@ -125,6 +133,24 @@ export const migrateCatalogNavigation = (navigation) => {
   for (const key of CATALOG_MODULES) {
     cleaned[key] = catalog[key] != null ? catalog[key] : { ...EMPTY_CRUD };
   }
+
+  const fabricMaster = cleaned['Fabric master'];
+  for (const key of FABRIC_LOOKUP_MODULES) {
+    const current = cleaned[key];
+    const hasOwn =
+      current &&
+      typeof current === 'object' &&
+      (current.create || current.read || current.update || current.delete);
+    if (
+      !hasOwn &&
+      fabricMaster &&
+      typeof fabricMaster === 'object' &&
+      (fabricMaster.create || fabricMaster.read || fabricMaster.update || fabricMaster.delete)
+    ) {
+      cleaned[key] = { ...fabricMaster };
+    }
+  }
+
   return { ...navigation, Catalog: cleaned };
 };
 

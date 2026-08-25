@@ -9,6 +9,11 @@ import StyleCode from './styleCode.model.js';
 import StyleCodeCombo from './styleCodeCombo.model.js';
 import FabricSupplier from './fabricSupplier.model.js';
 import FabricCatalog from './fabricCatalog.model.js';
+import FabricType from './fabricType.model.js';
+import FabricColor from './fabricColor.model.js';
+import FabricQuality from './fabricQuality.model.js';
+import FabricYarnCount from './fabricYarnCount.model.js';
+import FabricMeasurement from './fabricMeasurement.model.js';
 import Machine from './machine.model.js';
 import Worker from './worker.model.js';
 import StorageRack from './storageRack.model.js';
@@ -35,6 +40,11 @@ export {
   StyleCodeCombo,
   FabricSupplier,
   FabricCatalog,
+  FabricType,
+  FabricColor,
+  FabricQuality,
+  FabricYarnCount,
+  FabricMeasurement,
   Machine,
   Worker,
   StorageRack,

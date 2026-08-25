@@ -11,6 +11,11 @@ import styleCodeRoute from './styleCode.route.js';
 import styleCodeComboRoute from './styleCodeCombo.route.js';
 import fabricSupplierRoute from './fabricSupplier.route.js';
 import fabricCatalogRoute from './fabricCatalog.route.js';
+import fabricTypeRoute from './fabricType.route.js';
+import fabricColorRoute from './fabricColor.route.js';
+import fabricQualityRoute from './fabricQuality.route.js';
+import fabricYarnCountRoute from './fabricYarnCount.route.js';
+import fabricMeasurementRoute from './fabricMeasurement.route.js';
 import phase3CatalogRoute from './phase3Catalog.route.js';
 import commonRoute from './common.route.js';
 import helpSupportRoute from './helpSupport/index.js';
@@ -62,6 +67,26 @@ const defaultRoutes = [
   {
     path: '/fabric-catalogs',
     route: fabricCatalogRoute,
+  },
+  {
+    path: '/fabric-types',
+    route: fabricTypeRoute,
+  },
+  {
+    path: '/fabric-colors',
+    route: fabricColorRoute,
+  },
+  {
+    path: '/fabric-qualities',
+    route: fabricQualityRoute,
+  },
+  {
+    path: '/fabric-yarn-counts',
+    route: fabricYarnCountRoute,
+  },
+  {
+    path: '/fabric-measurements',
+    route: fabricMeasurementRoute,
   },
   {
     path: '/',

@@ -8,10 +8,17 @@ const bankDetails = Joi.object().keys({
   ifsc: Joi.string().allow(''),
 });
 
+const fabricDetail = Joi.object().keys({
+  fabricCatalogId: Joi.string().custom(objectId).required(),
+  fabricName: Joi.string().allow(''),
+  fabricSortNo: Joi.string().allow(''),
+  fabricTypeName: Joi.string().allow(''),
+  colourName: Joi.string().allow(''),
+});
+
 export const createFabricSupplier = {
   body: Joi.object().keys({
     name: Joi.string().required(),
-    code: Joi.string().allow(''),
     contactPerson: Joi.string().required(),
     contactNumber: Joi.string().allow(''),
     email: Joi.string().email().allow(''),
@@ -22,7 +29,8 @@ export const createFabricSupplier = {
     country: Joi.string().allow(''),
     gstin: Joi.string().allow(''),
     paymentTerms: Joi.string().allow(''),
-    leadTimeDays: Joi.number().integer().min(0),
+    fabricMill: Joi.string().allow(''),
+    fabricDetails: Joi.array().items(fabricDetail),
     bankDetails,
     status: Joi.string().valid('active', 'inactive'),
   }),
@@ -31,7 +39,6 @@ export const createFabricSupplier = {
 export const getFabricSuppliers = {
   query: Joi.object().keys({
     name: Joi.string(),
-    code: Joi.string(),
     status: Joi.string(),
     search: Joi.string(),
     sortBy: Joi.string(),
@@ -53,7 +60,6 @@ export const updateFabricSupplier = {
   body: Joi.object()
     .keys({
       name: Joi.string(),
-      code: Joi.string().allow(''),
       contactPerson: Joi.string(),
       contactNumber: Joi.string().allow(''),
       email: Joi.string().email().allow(''),
@@ -64,7 +70,8 @@ export const updateFabricSupplier = {
       country: Joi.string().allow(''),
       gstin: Joi.string().allow(''),
       paymentTerms: Joi.string().allow(''),
-      leadTimeDays: Joi.number().integer().min(0),
+      fabricMill: Joi.string().allow(''),
+      fabricDetails: Joi.array().items(fabricDetail),
       bankDetails,
       status: Joi.string().valid('active', 'inactive'),
     })

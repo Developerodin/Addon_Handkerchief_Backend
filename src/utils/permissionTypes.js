@@ -15,6 +15,14 @@ export const FULL_CRUD = Object.freeze({
 
 export const CRUD_KEYS = ['create', 'read', 'update', 'delete'];
 
+export const FABRIC_LOOKUP_MODULES = [
+  'Fabric Type',
+  'Fabric Color',
+  'Fabric Quality',
+  'Fabric Yarn/Count',
+  'Fabric Measurement',
+];
+
 export const HELP_SUPPORT_TABS = ['Files', 'Tasks', 'Tickets'];
 
 export const FULL_HELP_SUPPORT = Object.freeze({
@@ -300,5 +308,16 @@ export const hasCrudPermission = (navigation, path, action) => {
   }
 
   const crud = applyCrudDependencies(normalizeCrud(current));
+
+  if (
+    keys[0] === 'Catalog' &&
+    keys.length === 2 &&
+    FABRIC_LOOKUP_MODULES.includes(keys[1])
+  ) {
+    const fabricMaster = navigation?.Catalog?.['Fabric master'];
+    const fabricCrud = applyCrudDependencies(normalizeCrud(fabricMaster));
+    return Boolean(crud[action] || fabricCrud[action]);
+  }
+
   return Boolean(crud[action]);
 };

@@ -10,7 +10,7 @@ export const createFabricCatalog = catchAsync(async (req, res) => {
 });
 
 export const getFabricCatalogs = catchAsync(async (req, res) => {
-  const filter = pick(req.query, ['name', 'code', 'fabricType', 'colour', 'status', 'supplier']);
+  const filter = pick(req.query, ['name', 'fabricSortNo', 'fabricType', 'color', 'quality', 'status']);
   const options = pick(req.query, ['sortBy', 'limit', 'page']);
   const result = await fabricCatalogService.queryFabricCatalogs(filter, options, req.query.search);
   res.send(result);
