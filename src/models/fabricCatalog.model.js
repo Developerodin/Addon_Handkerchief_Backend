@@ -63,6 +63,21 @@ const fabricCatalogSchema = mongoose.Schema(
       trim: true,
       default: '',
     },
+    design: {
+      type: String,
+      enum: ['', 'Plain', 'Print'],
+      default: '',
+    },
+    wash: {
+      type: String,
+      enum: ['', 'Yes', 'No'],
+      default: '',
+    },
+    finish: {
+      type: String,
+      enum: ['', 'NA', 'N9', 'Silverdor', 'Anti Micobacterial'],
+      default: '',
+    },
     glm: {
       type: Number,
       min: 0,

@@ -40,6 +40,11 @@ const normalizeBody = (body) => {
   if (next.fabricSortNo != null) {
     next.fabricSortNo = String(next.fabricSortNo).trim();
   }
+  ['design', 'wash', 'finish'].forEach((key) => {
+    if (next[key] != null) {
+      next[key] = String(next[key]).trim();
+    }
+  });
   return next;
 };
 

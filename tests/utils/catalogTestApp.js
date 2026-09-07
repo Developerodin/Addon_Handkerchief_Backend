@@ -11,6 +11,12 @@ import rawMaterialRoute from '../../src/routes/v1/rawMaterial.route.js';
 import processRoute from '../../src/routes/v1/process.route.js';
 import productRoute from '../../src/routes/v1/product.route.js';
 import styleCodeRoute from '../../src/routes/v1/styleCode.route.js';
+import fabricTypeRoute from '../../src/routes/v1/fabricType.route.js';
+import fabricColorRoute from '../../src/routes/v1/fabricColor.route.js';
+import fabricQualityRoute from '../../src/routes/v1/fabricQuality.route.js';
+import fabricYarnCountRoute from '../../src/routes/v1/fabricYarnCount.route.js';
+import fabricMeasurementRoute from '../../src/routes/v1/fabricMeasurement.route.js';
+import fabricCatalogRoute from '../../src/routes/v1/fabricCatalog.route.js';
 import { errorConverter, errorHandler } from '../../src/middlewares/error.js';
 
 /**
@@ -33,6 +39,12 @@ app.use('/v1/raw-materials', rawMaterialRoute);
 app.use('/v1/processes', processRoute);
 app.use('/v1/products', productRoute);
 app.use('/v1/style-codes', styleCodeRoute);
+app.use('/v1/fabric-types', fabricTypeRoute);
+app.use('/v1/fabric-colors', fabricColorRoute);
+app.use('/v1/fabric-qualities', fabricQualityRoute);
+app.use('/v1/fabric-yarn-counts', fabricYarnCountRoute);
+app.use('/v1/fabric-measurements', fabricMeasurementRoute);
+app.use('/v1/fabric-catalogs', fabricCatalogRoute);
 
 app.use(errorConverter);
 app.use(errorHandler);
