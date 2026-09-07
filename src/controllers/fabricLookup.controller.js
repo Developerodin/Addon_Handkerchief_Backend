@@ -6,6 +6,8 @@ import * as fabricTypeService from '../services/fabricType.service.js';
 import * as fabricColorService from '../services/fabricColor.service.js';
 import * as fabricQualityService from '../services/fabricQuality.service.js';
 import * as fabricYarnCountService from '../services/fabricYarnCount.service.js';
+import * as fabricYarnService from '../services/fabricYarn.service.js';
+import * as fabricCountService from '../services/fabricCount.service.js';
 import * as fabricMeasurementService from '../services/fabricMeasurement.service.js';
 
 const makeListHandler = (serviceFn, filterKeys) =>
@@ -78,6 +80,18 @@ export const deleteFabricYarnCount = makeDeleteHandler(
   fabricYarnCountService.deleteFabricYarnCountById,
   'fabricYarnCountId'
 );
+
+export const createFabricYarn = makeCreateHandler(fabricYarnService.createFabricYarn);
+export const getFabricYarns = makeListHandler(fabricYarnService.queryFabricYarns, ['name', 'status']);
+export const getFabricYarn = makeGetHandler(fabricYarnService.getFabricYarnById, 'Fabric yarn', 'fabricYarnId');
+export const updateFabricYarn = makeUpdateHandler(fabricYarnService.updateFabricYarnById, 'fabricYarnId');
+export const deleteFabricYarn = makeDeleteHandler(fabricYarnService.deleteFabricYarnById, 'fabricYarnId');
+
+export const createFabricCount = makeCreateHandler(fabricCountService.createFabricCount);
+export const getFabricCounts = makeListHandler(fabricCountService.queryFabricCounts, ['name', 'status']);
+export const getFabricCount = makeGetHandler(fabricCountService.getFabricCountById, 'Fabric count', 'fabricCountId');
+export const updateFabricCount = makeUpdateHandler(fabricCountService.updateFabricCountById, 'fabricCountId');
+export const deleteFabricCount = makeDeleteHandler(fabricCountService.deleteFabricCountById, 'fabricCountId');
 
 export const createFabricMeasurement = makeCreateHandler(fabricMeasurementService.createFabricMeasurement);
 export const getFabricMeasurements = makeListHandler(fabricMeasurementService.queryFabricMeasurements, [

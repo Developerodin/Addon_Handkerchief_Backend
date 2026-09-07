@@ -19,7 +19,8 @@ export const FABRIC_LOOKUP_MODULES = [
   'Fabric Type',
   'Fabric Color',
   'Fabric Quality',
-  'Fabric Yarn/Count',
+  'Fabric Yarn',
+  'Fabric Count',
   'Fabric Measurement',
 ];
 

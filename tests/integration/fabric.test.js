@@ -8,10 +8,11 @@ import { getDefaultNavigationByRole } from '../../src/utils/navigationHelper.js'
 import {
   buildFabricCatalogPayload,
   buildFabricColorPayload,
+  buildFabricCountPayload,
   buildFabricMeasurementPayload,
   buildFabricQualityPayload,
   buildFabricTypePayload,
-  buildFabricYarnCountPayload,
+  buildFabricYarnPayload,
 } from '../fixtures/fabric.fixture';
 
 setupTestDB();
@@ -85,10 +86,15 @@ const createFabricLookups = async () => {
     .set(authHeader)
     .send(buildFabricQualityPayload({ name: 'Test Premium' }))
     .expect(httpStatus.CREATED);
-  const yarnCountRes = await api
-    .post('/v1/fabric-yarn-counts')
+  const yarnRes = await api
+    .post('/v1/fabric-yarns')
     .set(authHeader)
-    .send(buildFabricYarnCountPayload({ name: "Test 60's" }))
+    .send(buildFabricYarnPayload({ name: "Test 60's" }))
+    .expect(httpStatus.CREATED);
+  const countRes = await api
+    .post('/v1/fabric-counts')
+    .set(authHeader)
+    .send(buildFabricCountPayload({ name: 'Test 60COMPX60COMP' }))
     .expect(httpStatus.CREATED);
   const glmMeasurementRes = await api
     .post('/v1/fabric-measurements')
@@ -105,13 +111,15 @@ const createFabricLookups = async () => {
     fabricTypeId: typeRes.body.id,
     colorId: colorRes.body.id,
     qualityId: qualityRes.body.id,
-    yarnCountId: yarnCountRes.body.id,
+    yarnId: yarnRes.body.id,
+    countId: countRes.body.id,
     glmMeasurementId: glmMeasurementRes.body.id,
     finishedWidthMeasurementId: widthMeasurementRes.body.id,
     typeName: typeRes.body.name,
     colorName: colorRes.body.name,
     qualityName: qualityRes.body.name,
-    yarnCountName: yarnCountRes.body.name,
+    yarnName: yarnRes.body.name,
+    countName: countRes.body.name,
     glmMeasurementName: glmMeasurementRes.body.name,
     widthMeasurementName: widthMeasurementRes.body.name,
   };
@@ -148,10 +156,20 @@ describe('Fabric Master API — sub-masters and catalog', () => {
     });
   });
 
-  test('FabricYarnCount: create, list, search, get, update, delete', async () => {
-    const payload = buildFabricYarnCountPayload();
+  test('FabricYarn: create, list, search, get, update, delete', async () => {
+    const payload = buildFabricYarnPayload();
     await runFullCrudFlow({
-      basePath: '/v1/fabric-yarn-counts',
+      basePath: '/v1/fabric-yarns',
+      createPayload: payload,
+      updatePayload: { name: `${payload.name}-updated` },
+      searchTerm: payload.name,
+    });
+  });
+
+  test('FabricCount: create, list, search, get, update, delete', async () => {
+    const payload = buildFabricCountPayload();
+    await runFullCrudFlow({
+      basePath: '/v1/fabric-counts',
       createPayload: payload,
       updatePayload: { name: `${payload.name}-updated` },
       searchTerm: payload.name,
@@ -181,7 +199,10 @@ describe('Fabric Master API — sub-masters and catalog', () => {
     expect(createRes.body.fabricTypeName).toBe(lookups.typeName);
     expect(createRes.body.colourName).toBe(lookups.colorName);
     expect(createRes.body.qualityName).toBe(lookups.qualityName);
-    expect(createRes.body.yarnCountName).toBe(lookups.yarnCountName);
+    expect(createRes.body.yarnName).toBe(lookups.yarnName);
+    expect(createRes.body.countName).toBe(lookups.countName);
+    expect(createRes.body.millOldFabricSortNo).toBe('17223');
+    expect(createRes.body.millNewFabricSortNo).toBe('AW0017223AB0586');
     expect(createRes.body.glmMeasurementName).toBe(lookups.glmMeasurementName);
     expect(createRes.body.finishedWidthMeasurementName).toBe(lookups.widthMeasurementName);
   });

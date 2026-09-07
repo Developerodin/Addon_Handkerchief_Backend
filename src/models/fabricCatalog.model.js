@@ -13,6 +13,16 @@ const fabricCatalogSchema = mongoose.Schema(
       trim: true,
       default: '',
     },
+    millOldFabricSortNo: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    millNewFabricSortNo: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     fabricType: {
       type: mongoose.SchemaTypes.ObjectId,
       ref: 'FabricType',
@@ -43,12 +53,22 @@ const fabricCatalogSchema = mongoose.Schema(
       trim: true,
       default: '',
     },
-    yarnCount: {
+    yarn: {
       type: mongoose.SchemaTypes.ObjectId,
-      ref: 'FabricYarnCount',
+      ref: 'FabricYarn',
       default: null,
     },
-    yarnCountName: {
+    yarnName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    count: {
+      type: mongoose.SchemaTypes.ObjectId,
+      ref: 'FabricCount',
+      default: null,
+    },
+    countName: {
       type: String,
       trim: true,
       default: '',
@@ -149,7 +169,8 @@ fabricCatalogSchema.index({ fabricSortNo: 1 }, { unique: true, sparse: true });
 fabricCatalogSchema.index({ fabricType: 1 });
 fabricCatalogSchema.index({ color: 1 });
 fabricCatalogSchema.index({ quality: 1 });
-fabricCatalogSchema.index({ yarnCount: 1 });
+fabricCatalogSchema.index({ yarn: 1 });
+fabricCatalogSchema.index({ count: 1 });
 
 fabricCatalogSchema.plugin(toJSON);
 fabricCatalogSchema.plugin(paginate);

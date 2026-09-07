@@ -139,6 +139,60 @@ export const deleteFabricYarnCount = {
   params: Joi.object().keys({ fabricYarnCountId: Joi.string().custom(objectId) }),
 };
 
+export const createFabricYarn = {
+  body: Joi.object().keys({
+    name: Joi.string().required(),
+    status: statusField,
+  }),
+};
+
+export const getFabricYarns = { query: Joi.object().keys(listQuery) };
+
+export const getFabricYarn = {
+  params: Joi.object().keys({ fabricYarnId: Joi.string().custom(objectId) }),
+};
+
+export const updateFabricYarn = {
+  params: Joi.object().keys({ fabricYarnId: Joi.string().custom(objectId) }),
+  body: Joi.object()
+    .keys({
+      name: Joi.string(),
+      status: statusField,
+    })
+    .min(1),
+};
+
+export const deleteFabricYarn = {
+  params: Joi.object().keys({ fabricYarnId: Joi.string().custom(objectId) }),
+};
+
+export const createFabricCount = {
+  body: Joi.object().keys({
+    name: Joi.string().required(),
+    status: statusField,
+  }),
+};
+
+export const getFabricCounts = { query: Joi.object().keys(listQuery) };
+
+export const getFabricCount = {
+  params: Joi.object().keys({ fabricCountId: Joi.string().custom(objectId) }),
+};
+
+export const updateFabricCount = {
+  params: Joi.object().keys({ fabricCountId: Joi.string().custom(objectId) }),
+  body: Joi.object()
+    .keys({
+      name: Joi.string(),
+      status: statusField,
+    })
+    .min(1),
+};
+
+export const deleteFabricCount = {
+  params: Joi.object().keys({ fabricCountId: Joi.string().custom(objectId) }),
+};
+
 export const createFabricMeasurement = {
   body: Joi.object().keys({
     name: Joi.string().required(),

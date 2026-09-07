@@ -13,6 +13,8 @@ import FabricType from './fabricType.model.js';
 import FabricColor from './fabricColor.model.js';
 import FabricQuality from './fabricQuality.model.js';
 import FabricYarnCount from './fabricYarnCount.model.js';
+import FabricYarn from './fabricYarn.model.js';
+import FabricCount from './fabricCount.model.js';
 import FabricMeasurement from './fabricMeasurement.model.js';
 import Machine from './machine.model.js';
 import Worker from './worker.model.js';
@@ -44,6 +46,8 @@ export {
   FabricColor,
   FabricQuality,
   FabricYarnCount,
+  FabricYarn,
+  FabricCount,
   FabricMeasurement,
   Machine,
   Worker,

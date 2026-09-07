@@ -23,6 +23,18 @@ export const buildFabricQualityPayload = (overrides = {}) => ({
   ...overrides,
 });
 
+export const buildFabricYarnPayload = (overrides = {}) => ({
+  name: `Yarn ${suffix()}`,
+  status: 'active',
+  ...overrides,
+});
+
+export const buildFabricCountPayload = (overrides = {}) => ({
+  name: `Count ${suffix()}`,
+  status: 'active',
+  ...overrides,
+});
+
 export const buildFabricYarnCountPayload = (overrides = {}) => ({
   name: `Yarn Count ${suffix()}`,
   status: 'active',
@@ -40,10 +52,13 @@ export const buildFabricMeasurementPayload = (overrides = {}) => ({
 export const buildFabricCatalogPayload = (lookupIds = {}, overrides = {}) => ({
   name: `Fabric Catalog ${suffix()}`,
   fabricSortNo: `FC-${suffix()}`,
+  millOldFabricSortNo: '17223',
+  millNewFabricSortNo: 'AW0017223AB0586',
   fabricType: lookupIds.fabricTypeId || null,
   color: lookupIds.colorId || null,
   quality: lookupIds.qualityId || null,
-  yarnCount: lookupIds.yarnCountId || null,
+  yarn: lookupIds.yarnId || null,
+  count: lookupIds.countId || null,
   construction: '92x80',
   weave: 'Plain',
   design: 'Plain',

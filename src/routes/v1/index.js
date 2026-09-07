@@ -15,6 +15,8 @@ import fabricTypeRoute from './fabricType.route.js';
 import fabricColorRoute from './fabricColor.route.js';
 import fabricQualityRoute from './fabricQuality.route.js';
 import fabricYarnCountRoute from './fabricYarnCount.route.js';
+import fabricYarnRoute from './fabricYarn.route.js';
+import fabricCountRoute from './fabricCount.route.js';
 import fabricMeasurementRoute from './fabricMeasurement.route.js';
 import phase3CatalogRoute from './phase3Catalog.route.js';
 import commonRoute from './common.route.js';
@@ -83,6 +85,14 @@ const defaultRoutes = [
   {
     path: '/fabric-yarn-counts',
     route: fabricYarnCountRoute,
+  },
+  {
+    path: '/fabric-yarns',
+    route: fabricYarnRoute,
+  },
+  {
+    path: '/fabric-counts',
+    route: fabricCountRoute,
   },
   {
     path: '/fabric-measurements',

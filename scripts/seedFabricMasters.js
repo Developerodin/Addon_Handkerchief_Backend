@@ -3,7 +3,8 @@ import dotenv from 'dotenv';
 import FabricType from '../src/models/fabricType.model.js';
 import FabricColor from '../src/models/fabricColor.model.js';
 import FabricQuality from '../src/models/fabricQuality.model.js';
-import FabricYarnCount from '../src/models/fabricYarnCount.model.js';
+import FabricYarn from '../src/models/fabricYarn.model.js';
+import FabricCount from '../src/models/fabricCount.model.js';
 import FabricMeasurement from '../src/models/fabricMeasurement.model.js';
 import FabricCatalog from '../src/models/fabricCatalog.model.js';
 import { ensureFabricMeasurementsSeeded } from '../src/utils/fabricMeasurementSeed.js';
@@ -20,7 +21,8 @@ const COLOR_ROWS = [
   { name: 'Red', colorCode: '#CC0000' },
 ];
 const QUALITY_NAMES = ['Premium Cotton', 'Standard Cotton'];
-const YARN_COUNT_NAMES = ["60's Compact", "40's Ring Spun"];
+const YARN_NAMES = ["60's", "40's"];
+const COUNT_NAMES = ['60COMPX60COMP', '40COMPX40COMP'];
 
 const upsertByName = async (Model, rows, mapRow = (row) => row) => {
   const map = {};
@@ -73,9 +75,13 @@ const seedFabricMasters = async () => {
     FabricQuality,
     QUALITY_NAMES.map((name) => ({ name, remarks: SAMPLE_TAG }))
   );
-  const yarnCounts = await upsertByName(
-    FabricYarnCount,
-    YARN_COUNT_NAMES.map((name) => ({ name }))
+  const yarns = await upsertByName(
+    FabricYarn,
+    YARN_NAMES.map((name) => ({ name }))
+  );
+  const counts = await upsertByName(
+    FabricCount,
+    COUNT_NAMES.map((name) => ({ name }))
   );
 
   const gsm = await FabricMeasurement.findOne({ name: 'GSM', category: 'weight' });
@@ -88,10 +94,13 @@ const seedFabricMasters = async () => {
     {
       name: 'White Cotton Voile',
       fabricSortNo: 'FC-VOILE-01',
+      millOldFabricSortNo: '17223',
+      millNewFabricSortNo: 'AW0017223AB0586',
       fabricType: types.Voile._id,
       color: colors.White._id,
       quality: qualities['Premium Cotton']._id,
-      yarnCount: yarnCounts["60's Compact"]._id,
+      yarn: yarns["60's"]._id,
+      count: counts['60COMPX60COMP']._id,
       construction: '92x80',
       weave: 'Plain',
       design: 'Plain',
@@ -111,10 +120,13 @@ const seedFabricMasters = async () => {
     {
       name: 'Navy Poplin Print',
       fabricSortNo: 'FC-POP-02',
+      millOldFabricSortNo: '17224',
+      millNewFabricSortNo: 'AW0017224AB0587',
       fabricType: types.Poplin._id,
       color: colors.Navy._id,
       quality: qualities['Standard Cotton']._id,
-      yarnCount: yarnCounts["40's Ring Spun"]._id,
+      yarn: yarns["40's"]._id,
+      count: counts['40COMPX40COMP']._id,
       construction: '110x76',
       weave: 'Poplin',
       design: 'Print',
@@ -134,10 +146,13 @@ const seedFabricMasters = async () => {
     {
       name: 'Cambric Silver Finish',
       fabricSortNo: 'FC-CAM-03',
+      millOldFabricSortNo: '17225',
+      millNewFabricSortNo: 'AW0017225AB0588',
       fabricType: types.Cambric._id,
       color: colors.Red._id,
       quality: qualities['Premium Cotton']._id,
-      yarnCount: yarnCounts["60's Compact"]._id,
+      yarn: yarns["60's"]._id,
+      count: counts['60COMPX60COMP']._id,
       construction: '80x80',
       weave: 'Plain',
       design: 'Plain',
@@ -168,7 +183,8 @@ const seedFabricMasters = async () => {
   console.log(`  Fabric Types: ${TYPE_NAMES.length}`);
   console.log(`  Fabric Colors: ${COLOR_ROWS.length}`);
   console.log(`  Fabric Qualities: ${QUALITY_NAMES.length}`);
-  console.log(`  Fabric Yarn/Counts: ${YARN_COUNT_NAMES.length}`);
+  console.log(`  Fabric Yarns: ${YARN_NAMES.length}`);
+  console.log(`  Fabric Counts: ${COUNT_NAMES.length}`);
   console.log(`  Fabric Measurements: GSM + Inch (auto-seeded if empty)`);
   console.log(`  Fabric Catalog: ${catalogRows.length}`);
   console.log(`Tag in DB: remark="${SAMPLE_TAG}"`);

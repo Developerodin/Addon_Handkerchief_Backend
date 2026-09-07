@@ -3,7 +3,8 @@ import FabricCatalog from '../models/fabricCatalog.model.js';
 import FabricType from '../models/fabricType.model.js';
 import FabricColor from '../models/fabricColor.model.js';
 import FabricQuality from '../models/fabricQuality.model.js';
-import FabricYarnCount from '../models/fabricYarnCount.model.js';
+import FabricYarn from '../models/fabricYarn.model.js';
+import FabricCount from '../models/fabricCount.model.js';
 import FabricMeasurement from '../models/fabricMeasurement.model.js';
 import ApiError from '../utils/ApiError.js';
 import { escapeRegex } from '../utils/fabricLookupCrud.js';
@@ -12,7 +13,8 @@ const LOOKUP_FIELDS = [
   { idKey: 'fabricType', nameKey: 'fabricTypeName', Model: FabricType, label: 'Fabric type' },
   { idKey: 'color', nameKey: 'colourName', Model: FabricColor, label: 'Fabric color' },
   { idKey: 'quality', nameKey: 'qualityName', Model: FabricQuality, label: 'Fabric quality' },
-  { idKey: 'yarnCount', nameKey: 'yarnCountName', Model: FabricYarnCount, label: 'Fabric yarn/count' },
+  { idKey: 'yarn', nameKey: 'yarnName', Model: FabricYarn, label: 'Fabric yarn' },
+  { idKey: 'count', nameKey: 'countName', Model: FabricCount, label: 'Fabric count' },
   {
     idKey: 'glmMeasurement',
     nameKey: 'glmMeasurementName',
@@ -32,7 +34,7 @@ const LOOKUP_FIELDS = [
 const normalizeBody = (body) => {
   if (!body) return body;
   const next = { ...body };
-  ['fabricType', 'color', 'quality', 'yarnCount', 'glmMeasurement', 'finishedWidthMeasurement'].forEach(
+  ['fabricType', 'color', 'quality', 'yarn', 'count', 'glmMeasurement', 'finishedWidthMeasurement'].forEach(
     (key) => {
       if (next[key] === '') next[key] = null;
     }
@@ -40,6 +42,11 @@ const normalizeBody = (body) => {
   if (next.fabricSortNo != null) {
     next.fabricSortNo = String(next.fabricSortNo).trim();
   }
+  ['millOldFabricSortNo', 'millNewFabricSortNo'].forEach((key) => {
+    if (next[key] != null) {
+      next[key] = String(next[key]).trim();
+    }
+  });
   ['design', 'wash', 'finish'].forEach((key) => {
     if (next[key] != null) {
       next[key] = String(next[key]).trim();
@@ -73,7 +80,8 @@ const FABRIC_POPULATE = [
   { path: 'fabricType', select: 'name status' },
   { path: 'color', select: 'name colorCode status' },
   { path: 'quality', select: 'name composition primaryFiber primaryFiberPercent secondaryFiber secondaryFiberPercent grade status' },
-  { path: 'yarnCount', select: 'name status' },
+  { path: 'yarn', select: 'name status' },
+  { path: 'count', select: 'name status' },
   { path: 'glmMeasurement', select: 'name symbol category status' },
   { path: 'finishedWidthMeasurement', select: 'name symbol category status' },
 ];
@@ -96,10 +104,13 @@ export const queryFabricCatalogs = async (filter, options, search) => {
       $or: [
         { name: searchRegex },
         { fabricSortNo: searchRegex },
+        { millOldFabricSortNo: searchRegex },
+        { millNewFabricSortNo: searchRegex },
         { fabricTypeName: searchRegex },
         { colourName: searchRegex },
         { qualityName: searchRegex },
-        { yarnCountName: searchRegex },
+        { yarnName: searchRegex },
+        { countName: searchRegex },
         { construction: searchRegex },
         { weave: searchRegex },
         { glmMeasurementName: searchRegex },
