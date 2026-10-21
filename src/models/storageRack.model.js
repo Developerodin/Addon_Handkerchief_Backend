@@ -1,7 +1,21 @@
 import mongoose from 'mongoose';
 import { toJSON, paginate } from './plugins/index.js';
 
-export const STOCK_TYPES = ['fabric', 'wip-bundle', 'finished-carton'];
+export const STOCK_TYPES = [
+  'fabric',
+  'wip-bundle',
+  'finished-carton',
+  'floor-roll',
+  'pieces',
+  'bundles',
+  'waiting-embroidery',
+  'waiting-sticker',
+  'long-alteration',
+  'alteration',
+  'rejection',
+  'packing',
+  'box',
+];
 
 const storageRackSchema = mongoose.Schema(
   {

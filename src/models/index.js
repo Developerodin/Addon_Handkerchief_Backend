@@ -29,6 +29,13 @@ import HelpSupportTaskTeam from './helpSupport/taskTeam.model.js';
 import HelpSupportTaskNotification from './helpSupport/taskNotification.model.js';
 import { HelpSupportNotificationReadState } from './helpSupport/taskNotification.model.js';
 import './yarnCatalogStub.model.js';
+import './versioning.model.js';
+import './sync.model.js';
+import './store.model.js';
+import './production.model.js';
+import './quality.model.js';
+import './warehouse.model.js';
+import './invoice.model.js';
 
 export {
   Token,

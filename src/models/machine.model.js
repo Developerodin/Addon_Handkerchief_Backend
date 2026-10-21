@@ -28,12 +28,22 @@ const machineSchema = mongoose.Schema(
       ref: 'User',
       default: null,
     },
+    assignedOperator: {
+      type: mongoose.SchemaTypes.ObjectId,
+      ref: 'Worker',
+      default: null,
+    },
+    barcode: { type: String, trim: true, default: '' },
     status: { type: String, enum: ['active', 'inactive'], default: 'active' },
   },
   { timestamps: true }
 );
 
 machineSchema.index({ code: 1 }, { unique: true, sparse: true });
+machineSchema.index(
+  { barcode: 1 },
+  { unique: true, partialFilterExpression: { barcode: { $gt: '' } } }
+);
 machineSchema.plugin(toJSON);
 machineSchema.plugin(paginate);
 

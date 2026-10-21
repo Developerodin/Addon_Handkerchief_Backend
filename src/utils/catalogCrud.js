@@ -3,7 +3,24 @@ import ApiError from '../utils/ApiError.js';
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-export const createCatalogCrud = (Model, { resourceName, searchFields = [], populate = null, uniqueField = null }) => {
+export const createCatalogCrud = (
+  Model,
+  { resourceName, searchFields = [], populate = null, uniqueField = null, extraUniqueFields = [] }
+) => {
+  /**
+   * Reject a second document that reuses a non-empty unique field.
+   * @param {Object} body
+   * @param {import('mongoose').Types.ObjectId|string} [excludeId]
+   */
+  const assertExtraUnique = async (body, excludeId) => {
+    for (const field of extraUniqueFields) {
+      if (!body[field]) continue;
+      const query = { [field]: body[field] };
+      if (excludeId) query._id = { $ne: excludeId };
+      const existing = await Model.findOne(query);
+      if (existing) throw new ApiError(httpStatus.BAD_REQUEST, `${resourceName} ${field} already taken`);
+    }
+  };
   const applySearch = (filter, search) => {
     let queryFilter = { ...filter };
     if (search && typeof search === 'string' && search.trim()) {
@@ -21,6 +38,7 @@ export const createCatalogCrud = (Model, { resourceName, searchFields = [], popu
       const existing = await Model.findOne({ [uniqueField]: body[uniqueField] });
       if (existing) throw new ApiError(httpStatus.BAD_REQUEST, `${resourceName} already exists`);
     }
+    await assertExtraUnique(body);
     return Model.create(body);
   };
 
@@ -43,6 +61,7 @@ export const createCatalogCrud = (Model, { resourceName, searchFields = [], popu
       const existing = await Model.findOne({ [uniqueField]: updateBody[uniqueField], _id: { $ne: id } });
       if (existing) throw new ApiError(httpStatus.BAD_REQUEST, `${resourceName} already exists`);
     }
+    await assertExtraUnique(updateBody, id);
     Object.assign(doc, updateBody);
     await doc.save();
     return populate ? doc.populate(populate) : doc;

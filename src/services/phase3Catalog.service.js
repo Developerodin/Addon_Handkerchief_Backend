@@ -9,8 +9,9 @@ import { createCatalogCrud } from '../utils/catalogCrud.js';
 export const machineService = createCatalogCrud(Machine, {
   resourceName: 'Machine',
   uniqueField: 'code',
-  populate: 'assignedSupervisor',
-  searchFields: ['name', 'code', 'machineType', 'makeModel', 'department', 'floor', 'maintenanceNotes'],
+  populate: 'assignedSupervisor assignedOperator',
+  extraUniqueFields: ['barcode'],
+  searchFields: ['name', 'code', 'barcode', 'machineType', 'makeModel', 'department', 'floor', 'maintenanceNotes'],
 });
 
 export const workerService = createCatalogCrud(Worker, {

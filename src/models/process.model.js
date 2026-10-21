@@ -98,6 +98,10 @@ const processSchema = mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    threadConsuming: {
+      type: Boolean,
+      default: false,
+    },
     reworkEligible: {
       type: Boolean,
       default: false,

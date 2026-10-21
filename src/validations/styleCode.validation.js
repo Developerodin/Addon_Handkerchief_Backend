@@ -9,6 +9,7 @@ const baseFields = {
   pack: Joi.string().trim().allow(''),
   bundleQty: Joi.number().integer().min(1),
   cartonQty: Joi.number().integer().min(1),
+  packingBundleQty: Joi.number().integer().min(60).max(120),
   linkedItem: Joi.string().custom(objectId).allow(null, ''),
   status: Joi.string().valid('active', 'inactive'),
 };
@@ -50,6 +51,7 @@ const updateStyleCode = {
       pack: Joi.string().trim().allow(''),
       bundleQty: Joi.number().integer().min(1),
       cartonQty: Joi.number().integer().min(1),
+      packingBundleQty: Joi.number().integer().min(60).max(120),
       linkedItem: Joi.string().custom(objectId).allow(null, ''),
       status: Joi.string().valid('active', 'inactive'),
     })
@@ -74,6 +76,7 @@ const bulkImportStyleCodes = {
           pack: Joi.string().trim().allow(''),
           bundleQty: Joi.number().integer().min(1),
           cartonQty: Joi.number().integer().min(1),
+          packingBundleQty: Joi.number().integer().min(60).max(120),
           status: Joi.string().valid('active', 'inactive').default('active'),
         })
       )

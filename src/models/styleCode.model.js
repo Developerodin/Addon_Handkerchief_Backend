@@ -39,6 +39,13 @@ const styleCodeSchema = mongoose.Schema(
       min: 1,
       default: 120,
     },
+    /** Pieces in one packing bundle. 60 to 120. */
+    packingBundleQty: {
+      type: Number,
+      min: 60,
+      max: 120,
+      default: 60,
+    },
     linkedItem: {
       type: mongoose.SchemaTypes.ObjectId,
       ref: 'Product',

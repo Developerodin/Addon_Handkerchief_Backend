@@ -1,13 +1,14 @@
 import Joi from 'joi';
 import { objectId } from './custom.validation.js';
 
-const productionType = Joi.string().valid('normal', 'embroidery', 'internal', 'outsourced');
+const productionType = Joi.string().valid('normal', 'embroidery', 'sticker', 'internal', 'outsourced');
 
 const fabricBomItem = Joi.object().keys({
   fabricCatalogId: Joi.string().custom(objectId),
   fabricName: Joi.string().trim().allow(''),
   quantity: Joi.number().min(0),
   unitCost: Joi.number().min(0),
+  bomLineId: Joi.string().allow(''),
   // Legacy yarn keys accepted and mapped in service
   yarnCatalogId: Joi.string().custom(objectId),
   yarnName: Joi.string().trim().allow(''),
@@ -17,6 +18,7 @@ const packagingBomItem = Joi.object().keys({
   rawMaterialId: Joi.string().custom(objectId),
   quantity: Joi.number().min(0),
   unitCost: Joi.number().min(0),
+  materialRole: Joi.string().valid('sewing-thread', 'embroidery-thread', 'packing'),
 });
 
 const createProduct = {
@@ -26,6 +28,8 @@ const createProduct = {
     internalCode: Joi.string().allow(''),
     articleName: Joi.string().allow(''),
     vendorCode: Joi.string().allow(''),
+    vendorName: Joi.string().allow(''),
+    piecesPerCut: Joi.number().valid(3, 4),
     factoryCode: Joi.string().allow(''),
     knittingCode: Joi.string().optional().allow('').default(''),
     hsnCode: Joi.string().allow(''),
@@ -88,6 +92,8 @@ const updateProduct = {
       internalCode: Joi.string().allow(''),
       articleName: Joi.string().allow(''),
       vendorCode: Joi.string().allow(''),
+      vendorName: Joi.string().allow(''),
+      piecesPerCut: Joi.number().valid(3, 4),
       factoryCode: Joi.string().allow(''),
       knittingCode: Joi.string().allow(''),
       hsnCode: Joi.string().allow(''),

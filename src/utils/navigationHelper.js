@@ -3,6 +3,7 @@ import {
   FULL_CRUD,
   CRUD_KEYS,
   normalizeCrud,
+  applyCrudDependencies,
   normalizeHelpSupport,
   normalizeNavigationTree,
   applyCrudTemplate,
@@ -15,6 +16,76 @@ import {
   hasHelpSupportTabAccess,
   FABRIC_LOOKUP_MODULES,
 } from './permissionTypes.js';
+
+export const FACTORY_SCREEN_KEYS = [
+  'Sync',
+  'Store / Purchase orders',
+  'Store / Receipt',
+  'Store / Racks and issue',
+  'Production / Orders',
+  'Production / Floor',
+  'Production / Cut',
+  'Production / Selvage',
+  'Production / Half moon',
+  'Production / Vertical hem',
+  'Production / Bundle',
+  'Production / Horizontal hem',
+  'Production / Thread cut',
+  'Production / Iron',
+  'Production / Route split',
+  'Production / Embroidery',
+  'Production / Sticker',
+  'Quality / Fabric QC',
+  'Quality / Floor checks',
+  'Quality / Grades',
+  'Warehouse / Packing',
+  'Warehouse / Boxes',
+  'Warehouse / Orders',
+  'Warehouse / Dispatch',
+  'Accounts / Invoices',
+  'Reports',
+  'Fabric / Purchase orders',
+  'Fabric / Drafts',
+  'Fabric / Receipts',
+  'Fabric / GRN history',
+  'Fabric / Vendor return',
+  'Fabric / Return challan',
+  'Fabric / Issue',
+  'Fabric / Return',
+  'Fabric / Storage',
+  'Fabric / Live inventory',
+  'Fabric / Stock report',
+  'Fabric / PO analytics',
+  'Fabric / Fabric analytics',
+];
+
+/** Fill a new Fabric screen from the Store or Reports grant it used to share. */
+const FABRIC_FROM_LEGACY = {
+  'Fabric / Purchase orders': 'Store / Purchase orders',
+  'Fabric / Drafts': 'Store / Purchase orders',
+  'Fabric / Receipts': 'Store / Receipt',
+  'Fabric / GRN history': 'Store / Receipt',
+  'Fabric / Vendor return': 'Store / Receipt',
+  'Fabric / Return challan': 'Store / Receipt',
+  'Fabric / Issue': 'Store / Racks and issue',
+  'Fabric / Return': 'Store / Racks and issue',
+  'Fabric / Storage': 'Store / Racks and issue',
+  'Production / Cut': 'Production / Floor',
+  'Production / Selvage': 'Production / Floor',
+  'Production / Half moon': 'Production / Floor',
+  'Production / Vertical hem': 'Production / Floor',
+  'Production / Bundle': 'Production / Floor',
+  'Production / Horizontal hem': 'Production / Floor',
+  'Production / Thread cut': 'Production / Floor',
+  'Production / Iron': 'Production / Floor',
+  'Production / Route split': 'Production / Floor',
+  'Production / Embroidery': 'Production / Floor',
+  'Production / Sticker': 'Production / Floor',
+  'Fabric / Live inventory': 'Reports',
+  'Fabric / Stock report': 'Reports',
+  'Fabric / PO analytics': 'Reports',
+  'Fabric / Fabric analytics': 'Reports',
+};
 
 export const CATALOG_MODULES = [
   'Items',
@@ -58,14 +129,27 @@ export const DEFAULT_NAVIGATION = {
   Dashboard: { ...EMPTY_CRUD },
   Catalog: buildCatalogDefaults(),
   Users: { ...EMPTY_CRUD },
+  'Revision review': { ...EMPTY_CRUD },
+  ...Object.fromEntries(FACTORY_SCREEN_KEYS.map((key) => [key, { ...EMPTY_CRUD }])),
   'Help & Support': { ...FULL_HELP_SUPPORT },
 };
 
 const adminTemplate = applyCrudTemplate(DEFAULT_NAVIGATION, FULL_CRUD);
 adminTemplate['Help & Support'] = true;
 
+const superAdminTemplate = {
+  ...adminTemplate,
+  'Help & Support': { ...FULL_HELP_SUPPORT },
+  'Revision review': { ...FULL_CRUD },
+};
+adminTemplate['Revision review'] = { ...EMPTY_CRUD };
+for (const key of FACTORY_SCREEN_KEYS) {
+  superAdminTemplate[key] = { ...FULL_CRUD };
+  adminTemplate[key] = { ...EMPTY_CRUD };
+}
+
 export const ROLE_NAVIGATION_TEMPLATES = {
-  super_admin: { ...adminTemplate, 'Help & Support': { ...FULL_HELP_SUPPORT } },
+  super_admin: superAdminTemplate,
   admin: { ...adminTemplate, 'Help & Support': { ...FULL_HELP_SUPPORT } },
   accounts: {
     Dashboard: { create: false, read: true, update: false, delete: false },
@@ -96,8 +180,26 @@ export const ROLE_NAVIGATION_TEMPLATES = {
 };
 
 /**
- * @param {string} role
+ * Role template fills keys the stored user document does not have yet.
+ * Stored flags win, so an explicit deny stays denied.
+ * @param {{ role?: string, navigation?: object } | null | undefined} user
  * @returns {object}
+ */
+export const effectiveNavigation = (user) => {
+  const roleDefaults = getDefaultNavigationByRole(user?.role);
+  const stored = user?.navigation || {};
+  const merged = mergeNavigation(roleDefaults, stored);
+  for (const [next, legacy] of Object.entries(FABRIC_FROM_LEGACY)) {
+    if (stored[next] != null || stored[legacy] == null) continue;
+    const legacyCrud = normalizeCrud(stored[legacy]);
+    const granted = legacyCrud.create || legacyCrud.read || legacyCrud.update || legacyCrud.delete;
+    if (granted) merged[next] = applyCrudDependencies(legacyCrud);
+  }
+  return merged;
+};
+
+/**
+ * @param {string} role
  */
 export const getDefaultNavigationByRole = (role) => {
   const template = ROLE_NAVIGATION_TEMPLATES[role];

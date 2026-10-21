@@ -36,11 +36,28 @@ if (error) {
   throw new Error(`Config validation error: ${error.message}`);
 }
 
+/**
+ * Jest gets its own database. A "-test" suffix on the query string still
+ * uses the default database and deletes the development login.
+ * @param {string} url
+ * @param {string} env
+ */
+const mongoUrlForEnv = (url, env) => {
+  if (env !== 'test') return url;
+  const queryIndex = url.indexOf('?');
+  const base = queryIndex === -1 ? url : url.slice(0, queryIndex);
+  const query = queryIndex === -1 ? '' : url.slice(queryIndex);
+  const slash = base.lastIndexOf('/');
+  const hasDb = slash > base.indexOf('://') + 2 && slash < base.length - 1;
+  const withDb = hasDb ? `${base}-test` : `${base.replace(/\/$/, '')}/jest-test`;
+  return `${withDb}${query}`;
+};
+
 const config = {
   env: envVars.NODE_ENV,
   port: envVars.PORT,
   mongoose: {
-    url: envVars.MONGODB_URL + (envVars.NODE_ENV === 'test' ? '-test' : ''),
+    url: mongoUrlForEnv(envVars.MONGODB_URL, envVars.NODE_ENV),
     options: {
       useCreateIndex: true, // Optional: Remove this if using Mongoose v6+
       useNewUrlParser: true,

@@ -3,13 +3,31 @@ import mongoose from 'mongoose';
 import Product from '../models/product.model.js';
 import StyleCode from '../models/styleCode.model.js';
 import ApiError from '../utils/ApiError.js';
+import { publishItemDefinition } from './catalogPublish.service.js';
+
+const MATERIAL_ROLES = new Set(['sewing-thread', 'embroidery-thread', 'packing']);
 
 const normalizeProductionType = (value) => {
   if (value === 'embroidery') return 'embroidery';
+  if (value === 'sticker') return 'sticker';
   if (value === 'outsourced') return 'outsourced';
   if (value === 'internal') return 'normal';
   if (value === 'normal') return 'normal';
   return 'normal';
+};
+
+/**
+ * Accept only 3 or 4 pieces per cut. Empty means leave the model default.
+ * @param {number|string|undefined|null} value
+ * @returns {3|4|undefined}
+ */
+const normalizePiecesPerCut = (value) => {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = Number(value);
+  if (parsed !== 3 && parsed !== 4) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'piecesPerCut must be 3 or 4');
+  }
+  return parsed;
 };
 
 const mapBomItems = (bom) =>
@@ -28,11 +46,38 @@ const mapBomItems = (bom) =>
       const parsedQty = typeof quantity === 'number' ? quantity : quantity !== undefined ? parseFloat(quantity) || 0 : 0;
       const unitCost =
         typeof item?.unitCost === 'number' ? item.unitCost : item?.unitCost !== undefined ? parseFloat(item.unitCost) || 0 : 0;
+      const bomLineId = item?.bomLineId ? String(item.bomLineId).trim() : new mongoose.Types.ObjectId().toString();
       return {
         fabricCatalogId: normalizedId,
         fabricName: item?.fabricName || item?.yarnName || '',
         quantity: parsedQty < 0 ? 0 : parsedQty,
         unitCost: unitCost < 0 ? 0 : unitCost,
+        bomLineId,
+      };
+    })
+    .filter(Boolean);
+
+/**
+ * Keep packaging-line role. Unknown roles become packing.
+ * @param {Array<Object>|undefined} lines
+ * @returns {Array<{rawMaterialId: string, quantity: number, unitCost: number, materialRole: string}>}
+ */
+const mapRawMaterialItems = (lines) =>
+  (Array.isArray(lines) ? lines : [])
+    .map((item) => {
+      const rawMaterialId = item?.rawMaterialId || item?.rawMaterial || item?._id || item?.id;
+      const normalizedId = rawMaterialId ? String(rawMaterialId).trim() : '';
+      if (!normalizedId || !mongoose.Types.ObjectId.isValid(normalizedId)) return null;
+      const quantity = item?.quantity;
+      const parsedQty = typeof quantity === 'number' ? quantity : quantity !== undefined ? parseFloat(quantity) || 0 : 0;
+      const unitCost =
+        typeof item?.unitCost === 'number' ? item.unitCost : item?.unitCost !== undefined ? parseFloat(item.unitCost) || 0 : 0;
+      const materialRole = MATERIAL_ROLES.has(item?.materialRole) ? item.materialRole : 'packing';
+      return {
+        rawMaterialId: normalizedId,
+        quantity: parsedQty < 0 ? 0 : parsedQty,
+        unitCost: unitCost < 0 ? 0 : unitCost,
+        materialRole,
       };
     })
     .filter(Boolean);
@@ -69,7 +114,8 @@ const normalizeStyleCodeIdsForExcel = (ids) => {
 };
 
 const STANDARD_PRODUCT_KEYS = new Set([
-  'id', 'name', 'softwareCode', 'internalCode', 'vendorCode', 'factoryCode', 'knittingCode',
+  'id', 'name', 'softwareCode', 'internalCode', 'vendorCode', 'vendorName', 'factoryCode', 'knittingCode',
+  'piecesPerCut',
   'Factory Code', 'Knitting Code', 'factory_code', 'knitting_code',
   'styleCodes', 'styleCodeId1', 'styleCodeId2', 'styleCodeId3', 'styleCodeId4', 'styleCodeId5',
   'styleCodeId6', 'styleCodeId7', 'styleCodeId8', 'styleCodeId9', 'styleCodeId10',
@@ -153,15 +199,23 @@ export const createProduct = async (productBody) => {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Software code already taken');
   }
   const styleCodes = await ensureValidStyleCodes(productBody.styleCodes);
+  const piecesPerCut = normalizePiecesPerCut(productBody.piecesPerCut);
   const payload = {
     ...productBody,
     styleCodes,
     productionType: normalizeProductionType(productBody.productionType),
+    vendorName: productBody.vendorName != null ? String(productBody.vendorName).trim() : '',
+    ...(piecesPerCut !== undefined ? { piecesPerCut } : {}),
   };
   if (Array.isArray(productBody.bom)) {
     payload.bom = mapBomItems(productBody.bom);
   }
-  return Product.create(payload);
+  if (Array.isArray(productBody.rawMaterials)) {
+    payload.rawMaterials = mapRawMaterialItems(productBody.rawMaterials);
+  }
+  const created = await Product.create(payload);
+  await publishItemDefinition(created, productBody.actorId);
+  return created;
 };
 
 /**
@@ -413,8 +467,18 @@ export const updateProductById = async (productId, updateBody) => {
   if (updatePayload.productionType !== undefined) {
     updatePayload.productionType = normalizeProductionType(updatePayload.productionType);
   }
+  if (updatePayload.piecesPerCut !== undefined) {
+    const piecesPerCut = normalizePiecesPerCut(updatePayload.piecesPerCut);
+    if (piecesPerCut !== undefined) updatePayload.piecesPerCut = piecesPerCut;
+  }
+  if (updatePayload.vendorName !== undefined) {
+    updatePayload.vendorName = String(updatePayload.vendorName).trim();
+  }
   if (Array.isArray(updatePayload.bom)) {
     updatePayload.bom = mapBomItems(updatePayload.bom);
+  }
+  if (Array.isArray(updatePayload.rawMaterials)) {
+    updatePayload.rawMaterials = mapRawMaterialItems(updatePayload.rawMaterials);
   }
 
   // Merge attributes instead of replacing the whole object, so missing keys (e.g. Needles) are preserved
@@ -438,6 +502,7 @@ export const updateProductById = async (productId, updateBody) => {
 
   Object.assign(product, updatePayload);
   await product.save();
+  await publishItemDefinition(product, updateBody.actorId);
   return product;
 };
 
@@ -583,17 +648,7 @@ export const bulkImportProducts = async (products, batchSize = 50) => {
                 if (processesMapped.length > 0) $set.processes = processesMapped;
               }
               if (Array.isArray(productData.rawMaterials)) {
-                const rawMapped = productData.rawMaterials
-                  .map((item) => {
-                    const rawMaterialId = item?.rawMaterialId || item?.rawMaterial || item?._id || item?.id;
-                    const quantity = item?.quantity;
-                    const normalizedId = rawMaterialId ? String(rawMaterialId).trim() : '';
-                    if (!normalizedId || !mongoose.Types.ObjectId.isValid(normalizedId)) return null;
-                    const parsedQty = typeof quantity === 'number' ? quantity : quantity !== undefined ? parseFloat(quantity) || 0 : 0;
-                    return { rawMaterialId: normalizedId, quantity: parsedQty < 0 ? 0 : parsedQty };
-                  })
-                  .filter(Boolean);
-                $set.rawMaterials = rawMapped;
+                $set.rawMaterials = mapRawMaterialItems(productData.rawMaterials);
               }
 
               if ($set.softwareCode && $set.softwareCode !== existingProduct.softwareCode) {
@@ -634,24 +689,7 @@ export const bulkImportProducts = async (products, batchSize = 50) => {
                       })
                       .filter(Boolean)
                   : [],
-                rawMaterials: Array.isArray(productData.rawMaterials)
-                  ? productData.rawMaterials
-                      .map((item) => {
-                        const rawMaterialId = item?.rawMaterialId || item?.rawMaterial || item?._id || item?.id;
-                        const quantity = item?.quantity;
-                        const normalizedId = rawMaterialId ? String(rawMaterialId).trim() : '';
-                        if (!normalizedId) return null;
-                        if (!mongoose.Types.ObjectId.isValid(normalizedId)) return null;
-                        const parsedQty =
-                          typeof quantity === 'number'
-                            ? quantity
-                            : quantity !== undefined
-                              ? parseFloat(quantity) || 0
-                              : 0;
-                        return { rawMaterialId: normalizedId, quantity: parsedQty < 0 ? 0 : parsedQty };
-                      })
-                      .filter(Boolean)
-                  : [],
+                rawMaterials: mapRawMaterialItems(productData.rawMaterials),
                 productionType: normalizeProductionType(productData.productionType),
                 status: 'active',
               };
@@ -835,19 +873,7 @@ export const bulkUpsertProducts = async (products, batchSize = 50) => {
               attributes: collectedAttributes,
               bom: [],
               processes: [],
-              rawMaterials: Array.isArray(productData.rawMaterials)
-                ? productData.rawMaterials
-                    .map((item) => {
-                      const rawMaterialId = item?.rawMaterialId || item?.rawMaterial || item?._id || item?.id;
-                      const quantity = item?.quantity;
-                      const normalizedId = rawMaterialId ? String(rawMaterialId).trim() : '';
-                      if (!normalizedId) return null;
-                      if (!mongoose.Types.ObjectId.isValid(normalizedId)) return null;
-                      const parsedQty = typeof quantity === 'number' ? quantity : quantity !== undefined ? parseFloat(quantity) || 0 : 0;
-                      return { rawMaterialId: normalizedId, quantity: parsedQty < 0 ? 0 : parsedQty };
-                    })
-                    .filter(Boolean)
-                : [],
+              rawMaterials: mapRawMaterialItems(productData.rawMaterials),
               productionType: normalizeProductionType(productData.productionType),
               status: 'active',
             };

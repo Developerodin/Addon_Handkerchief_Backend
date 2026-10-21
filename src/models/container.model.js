@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { toJSON, paginate } from './plugins/index.js';
 import { PROCESS_DEPARTMENTS } from './process.model.js';
 
-export const CONTAINER_TYPES = ['bundle', 'carton', 'trolley', 'crate'];
+export const CONTAINER_TYPES = ['bundle', 'carton', 'trolley', 'crate', 'pieces'];
 
 const containerSchema = mongoose.Schema(
   {

@@ -1,7 +1,18 @@
 import mongoose from 'mongoose';
 import { toJSON, paginate } from './plugins/index.js';
 
-export const LABEL_TYPES = ['fabric-roll', 'bundle-sticker', 'carton', 'style-ean'];
+export const LABEL_TYPES = [
+  'fabric-roll',
+  'bundle-sticker',
+  'carton',
+  'style-ean',
+  'piece',
+  'packing-bundle',
+  'box-sticker',
+  'rack',
+  'container',
+  'machine',
+];
 
 const labelTemplateSchema = mongoose.Schema(
   {

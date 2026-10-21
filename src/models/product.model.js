@@ -23,6 +23,12 @@ const fabricBomItemSchema = mongoose.Schema({
     min: 0,
     default: 0,
   },
+  /** Stable line id. Kept across edits so imports do not match by row position. */
+  bomLineId: {
+    type: String,
+    trim: true,
+    default: '',
+  },
 });
 
 const processItemSchema = mongoose.Schema({
@@ -46,6 +52,11 @@ const packagingBomItemSchema = mongoose.Schema({
     type: Number,
     min: 0,
     default: 0,
+  },
+  materialRole: {
+    type: String,
+    enum: ['sewing-thread', 'embroidery-thread', 'packing'],
+    default: 'packing',
   },
 });
 
@@ -78,6 +89,11 @@ const productSchema = mongoose.Schema(
       required: false,
       trim: true,
     },
+    vendorName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     factoryCode: {
       type: String,
       required: false,
@@ -109,9 +125,15 @@ const productSchema = mongoose.Schema(
     ],
     productionType: {
       type: String,
-      enum: ['normal', 'embroidery', 'internal', 'outsourced'],
+      enum: ['normal', 'embroidery', 'sticker', 'internal', 'outsourced'],
       default: 'normal',
       required: true,
+    },
+    /** Pieces cut from one roll. 3 or 4. */
+    piecesPerCut: {
+      type: Number,
+      enum: [3, 4],
+      default: 3,
     },
     description: {
       type: String,

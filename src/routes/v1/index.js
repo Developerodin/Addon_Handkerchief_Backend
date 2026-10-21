@@ -19,6 +19,8 @@ import fabricYarnRoute from './fabricYarn.route.js';
 import fabricCountRoute from './fabricCount.route.js';
 import fabricMeasurementRoute from './fabricMeasurement.route.js';
 import phase3CatalogRoute from './phase3Catalog.route.js';
+import versioningRoute from './versioning.route.js';
+import factoryRoute from './factory.route.js';
 import commonRoute from './common.route.js';
 import helpSupportRoute from './helpSupport/index.js';
 import config from '../../config/config.js';
@@ -109,6 +111,14 @@ const defaultRoutes = [
   {
     path: '/help-support',
     route: helpSupportRoute,
+  },
+  {
+    path: '/versioning',
+    route: versioningRoute,
+  },
+  {
+    path: '/',
+    route: factoryRoute,
   },
 ];
 

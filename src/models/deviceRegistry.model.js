@@ -1,12 +1,14 @@
 import mongoose from 'mongoose';
 import { toJSON, paginate } from './plugins/index.js';
 
+export const DEVICE_TYPES = ['printer', 'scanner', 'scale', 'rfid-reader', 'rfid-writer'];
+
 const deviceRegistrySchema = mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
     deviceType: {
       type: String,
-      enum: ['printer', 'scanner'],
+      enum: DEVICE_TYPES,
       required: true,
     },
     model: { type: String, trim: true, default: '' },

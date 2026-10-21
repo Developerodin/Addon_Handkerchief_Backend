@@ -4,6 +4,7 @@ import { PROCESS_DEPARTMENTS, PROCESS_MACHINE_TYPES } from '../models/process.mo
 import { STOCK_TYPES } from '../models/storageRack.model.js';
 import { CONTAINER_TYPES } from '../models/container.model.js';
 import { LABEL_TYPES } from '../models/labelTemplate.model.js';
+import { DEVICE_TYPES } from '../models/deviceRegistry.model.js';
 
 const machineTypes = PROCESS_MACHINE_TYPES.filter((t) => t !== 'none');
 
@@ -21,6 +22,8 @@ export const createMachine = {
     nextMaintenanceDate: Joi.date().allow(null),
     maintenanceNotes: Joi.string().allow(''),
     assignedSupervisor: Joi.string().custom(objectId).allow(null, ''),
+    assignedOperator: Joi.string().custom(objectId).allow(null, ''),
+    barcode: Joi.string().allow(''),
     status: Joi.string().valid('active', 'inactive'),
   }),
 };
@@ -50,6 +53,8 @@ export const updateMachine = {
       nextMaintenanceDate: Joi.date().allow(null),
       maintenanceNotes: Joi.string().allow(''),
       assignedSupervisor: Joi.string().custom(objectId).allow(null, ''),
+      assignedOperator: Joi.string().custom(objectId).allow(null, ''),
+      barcode: Joi.string().allow(''),
       status: Joi.string().valid('active', 'inactive'),
     })
     .min(1),
@@ -224,7 +229,7 @@ export const deleteLabelTemplate = { params: Joi.object().keys({ templateId: Joi
 export const createDeviceRegistry = {
   body: Joi.object().keys({
     name: Joi.string().required(),
-    deviceType: Joi.string().valid('printer', 'scanner').required(),
+    deviceType: Joi.string().valid(...DEVICE_TYPES).required(),
     model: Joi.string().allow(''),
     location: Joi.string().allow(''),
     labelSize: Joi.string().allow(''),
@@ -247,7 +252,7 @@ export const updateDeviceRegistry = {
   body: Joi.object()
     .keys({
       name: Joi.string(),
-      deviceType: Joi.string().valid('printer', 'scanner'),
+      deviceType: Joi.string().valid(...DEVICE_TYPES),
       model: Joi.string().allow(''),
       location: Joi.string().allow(''),
       labelSize: Joi.string().allow(''),
