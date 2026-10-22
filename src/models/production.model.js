@@ -23,26 +23,146 @@ const floorStepSchema = mongoose.Schema(
   { _id: false }
 );
 
+const fabricSnapSchema = mongoose.Schema(
+  {
+    bomLineId: { type: String, default: '' },
+    fabricCatalogId: { type: String, default: '' },
+    fabricName: { type: String, default: '' },
+    metresPerPiece: { type: Number, default: 0, min: 0 },
+    unitCost: { type: Number, default: 0, min: 0 },
+  },
+  { _id: false }
+);
+
+const materialSnapSchema = mongoose.Schema(
+  {
+    lineId: { type: String, default: '' },
+    materialRole: { type: String, default: '' },
+    quantity: { type: Number, default: 0, min: 0 },
+    rawMaterialId: { type: String, default: '' },
+  },
+  { _id: false }
+);
+
+const snapshotSchema = mongoose.Schema(
+  {
+    fabricBom: { type: [fabricSnapSchema], default: [] },
+    threadLines: { type: [materialSnapSchema], default: [] },
+    packingLines: { type: [materialSnapSchema], default: [] },
+    piecesPerCut: { type: Number, enum: [3, 4], default: 3 },
+    route: { type: String, default: '' },
+    rates: {
+      type: [new mongoose.Schema({ bomLineId: { type: String, default: '' }, unitCost: { type: Number, default: 0 } }, { _id: false })],
+      default: [],
+    },
+    currency: { type: String, default: 'INR' },
+    calculationPolicy: { type: String, default: 'metres-per-piece' },
+  },
+  { _id: false }
+);
+
+const orderLineSchema = mongoose.Schema(
+  {
+    itemId: { type: mongoose.SchemaTypes.ObjectId, ref: 'Product', required: true },
+    articleName: { type: String, default: '' },
+    factoryCode: { type: String, default: '' },
+    productionType: { type: String, enum: ['normal', 'embroidery', 'sticker'], required: true },
+    piecesPerCut: { type: Number, enum: [3, 4], default: 3 },
+    quantity: { type: Number, required: true, min: 1 },
+    priority: { type: String, enum: ['Urgent', 'High', 'Medium', 'Low'], default: 'Medium' },
+    remarks: { type: String, default: '' },
+    revisionId: { type: String, default: '' },
+    pinId: { type: mongoose.SchemaTypes.ObjectId, default: null },
+    scopeId: { type: String, default: '' },
+    snapshot: { type: snapshotSchema, default: null },
+    floors: [floorStepSchema],
+    segments: [segmentSchema],
+  },
+  { _id: true }
+);
+
 const productionOrderSchema = mongoose.Schema(
   {
+    orderNumber: { type: String, unique: true, sparse: true },
+    orderDate: { type: Date, default: Date.now },
+    buyer: { type: String, default: '' },
+    clientOrderId: { type: mongoose.SchemaTypes.ObjectId, ref: 'ClientOrder', default: null },
+    requiredBy: { type: Date, default: null },
     itemId: { type: mongoose.SchemaTypes.ObjectId, ref: 'Product' },
     productionType: { type: String, enum: ['normal', 'embroidery', 'sticker'], required: true },
-    revisionId: { type: String, required: true },
+    revisionId: { type: String, default: '' },
     targetQty: { type: Number, required: true, min: 1 },
-    status: { type: String, enum: ['released', 'in-progress', 'amended', 'closed'], default: 'released' },
+    status: {
+      type: String,
+      enum: ['pending', 'released', 'in-progress', 'amended', 'on-hold', 'closed'],
+      default: 'released',
+    },
     priority: { type: String, enum: ['Urgent', 'High', 'Medium', 'Low'], default: 'Medium' },
     orderNote: { type: String, default: '' },
     currentFloor: { type: String, default: '' },
     floors: [floorStepSchema],
     segments: [segmentSchema],
+    lines: [orderLineSchema],
   },
   { timestamps: true }
 );
+
+/**
+ * Old orders have no lines. Every JSON response still shows one line built from the header.
+ * @param {object} line
+ * @param {string} [fallbackId]
+ */
+const shapeLine = (line, fallbackId) => {
+  const id = line.id || (line._id != null ? String(line._id) : fallbackId || '');
+  const next = { ...line, id };
+  delete next._id;
+  return next;
+};
+
+productionOrderSchema.options.toJSON = {
+  /**
+   * Fills order number, a synthetic line, and article totals before the shared plugin runs.
+   * @param {object} _doc
+   * @param {object} ret
+   */
+  transform(_doc, ret) {
+    const lines = Array.isArray(ret.lines) ? ret.lines : [];
+    if (!lines.length) {
+      ret.lines = [
+        shapeLine(
+          {
+            itemId: ret.itemId,
+            articleName: '',
+            factoryCode: '',
+            productionType: ret.productionType,
+            piecesPerCut: 3,
+            quantity: ret.targetQty,
+            priority: ret.priority || 'Medium',
+            remarks: '',
+            revisionId: ret.revisionId,
+            pinId: null,
+            scopeId: '',
+            snapshot: null,
+            segments: ret.segments || [],
+            floors: ret.floors || [],
+          },
+          id
+        ),
+      ];
+    } else {
+      ret.lines = lines.map((line) => shapeLine(line));
+    }
+    ret.articleCount = ret.lines.length;
+    ret.totalQty = ret.lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
+    return ret;
+  },
+};
 
 const floorCompletionSchema = mongoose.Schema(
   {
     eventId: { type: String, required: true, unique: true },
     orderId: { type: mongoose.SchemaTypes.ObjectId, ref: 'ProductionOrder', required: true },
+    lineId: { type: mongoose.SchemaTypes.ObjectId, default: null },
     stage: { type: String, required: true },
     qty: { type: Number, required: true, min: 0 },
     machineBarcode: { type: String, default: '' },
@@ -56,6 +176,7 @@ const pieceSchema = mongoose.Schema(
   {
     barcode: { type: String, required: true, unique: true },
     orderId: { type: mongoose.SchemaTypes.ObjectId, ref: 'ProductionOrder', required: true },
+    lineId: { type: mongoose.SchemaTypes.ObjectId, default: null },
     rollBarcode: { type: String, default: '' },
     bundleId: { type: mongoose.SchemaTypes.ObjectId, ref: 'PieceBundle' },
   },
@@ -65,6 +186,7 @@ const pieceSchema = mongoose.Schema(
 const pieceBundleSchema = mongoose.Schema(
   {
     orderId: { type: mongoose.SchemaTypes.ObjectId, ref: 'ProductionOrder', required: true },
+    lineId: { type: mongoose.SchemaTypes.ObjectId, default: null },
     number: { type: Number, required: true },
     qty: { type: Number, default: 0 },
     closed: { type: Boolean, default: false },

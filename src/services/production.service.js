@@ -1,10 +1,13 @@
 import httpStatus from 'http-status';
+import mongoose from 'mongoose';
 import ApiError from '../utils/ApiError.js';
 import { CutPiece, FloorCompletion, PieceBundle, ProductionOrder, ThreadUse } from '../models/production.model.js';
 import { FabricRoll } from '../models/store.model.js';
 import Product from '../models/product.model.js';
 import { nextCode } from './factory/ids.js';
 import { writeOrderLog } from './orderLog.service.js';
+import { allocateOrderNumber } from './production/orderNumber.js';
+import { createPin } from './versioning/pin.service.js';
 
 const BUNDLE_SIZE = 60;
 
@@ -45,7 +48,7 @@ const defaultFloors = (productionType) => {
  * Copies the item process list, in sort order, onto the order.
  * @param {object} body
  */
-const snapshotFloors = async (body) => {
+export const snapshotFloors = async (body) => {
   if (!body.itemId) return defaultFloors(body.productionType);
   const product = await Product.findById(body.itemId).populate('processes.processId');
   const processes = (product?.processes || [])
@@ -68,10 +71,14 @@ const snapshotFloors = async (body) => {
  * Releases an order on the revision it is given. Later publishes do not move it.
  * @param {object} body
  */
-export const releaseOrder = async (body) => {
+export const releaseOrder = async (body, _params, user) => {
   const floors = await snapshotFloors(body);
   if (floors[0]) floors[0].receivedQty = body.targetQty;
-  return ProductionOrder.create({
+  const order = await ProductionOrder.create({
+    orderNumber: await allocateOrderNumber(),
+    orderDate: new Date(),
+    buyer: body.buyer || '',
+    requiredBy: body.requiredBy || null,
     itemId: body.itemId,
     productionType: body.productionType,
     revisionId: body.revisionId,
@@ -81,7 +88,20 @@ export const releaseOrder = async (body) => {
     currentFloor: floors[0]?.floor || '',
     floors,
     segments: [{ revisionId: body.revisionId, qty: body.targetQty, completedQty: 0 }],
+    status: 'released',
   });
+  await writeOrderLog(
+    {
+      action: 'released',
+      orderId: order.id,
+      entityType: 'order',
+      entityCode: order.orderNumber,
+      quantity: body.targetQty,
+      remarks: body.orderNote || '',
+    },
+    user
+  );
+  return order;
 };
 
 /**
@@ -89,21 +109,60 @@ export const releaseOrder = async (body) => {
  * @param {string} orderId
  * @param {{ revisionId: string, remainingQty: number }} body
  */
-export const amendOrder = async (orderId, body) => {
+export const amendOrder = async (orderId, body, user) => {
   const order = await ProductionOrder.findById(orderId);
   if (!order) throw new ApiError(httpStatus.NOT_FOUND, 'Production order not found');
-  const current = order.segments[order.segments.length - 1];
-  const finished = current.completedQty;
-  const remaining = body.remainingQty;
-  if (finished + remaining !== current.qty && finished + remaining !== order.targetQty) {
-    current.qty = finished;
-  } else {
-    current.qty = finished;
+  if (order.status === 'pending') {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Release the order before amending it');
   }
-  order.segments.push({ revisionId: body.revisionId, qty: remaining, completedQty: 0 });
+  const line = body.lineId ? order.lines.id(body.lineId) : null;
+  if (body.lineId && !line) throw new ApiError(httpStatus.NOT_FOUND, 'Order line not found');
+  const segments = line && line.segments.length ? line.segments : order.segments;
+  if (!segments.length) throw new ApiError(httpStatus.BAD_REQUEST, 'This order has no revision segment');
+  const current = segments[segments.length - 1];
+  const finished = current.completedQty;
+  const remaining = Number(body.remainingQty);
+  if (Number.isNaN(remaining) || remaining < 0) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Remaining quantity is required');
+  }
+  current.qty = finished;
+  segments.push({ revisionId: body.revisionId, qty: remaining, completedQty: 0 });
+  if (line) {
+    line.revisionId = body.revisionId;
+    if (!order.segments.length || order.lines.length === 1) {
+      order.segments = line.segments.map((segment) => ({
+        revisionId: segment.revisionId,
+        qty: segment.qty,
+        completedQty: segment.completedQty,
+      }));
+    }
+    if (line.pinId && line.scopeId && mongoose.Types.ObjectId.isValid(body.revisionId)) {
+      const pin = await createPin({
+        scopeId: line.scopeId,
+        revisionId: body.revisionId,
+        kind: 'amendment',
+        quantity: remaining,
+        completedQuantity: 0,
+        parentPinId: line.pinId,
+        note: order.orderNumber || '',
+        actorId: user && user._id ? user._id : null,
+      });
+      line.pinId = pin.pin.id;
+    }
+  }
   order.revisionId = body.revisionId;
-  order.status = 'amended';
   await order.save();
+  await writeOrderLog(
+    {
+      action: 'amend',
+      orderId: order.id,
+      entityType: 'order',
+      entityCode: order.orderNumber || '',
+      quantity: remaining,
+      remarks: body.revisionId,
+    },
+    user
+  );
   return order;
 };
 
@@ -121,16 +180,34 @@ export const completeStage = async (body, _params, user) => {
   if (existing) return existing;
   const order = await ProductionOrder.findById(body.orderId);
   if (!order) throw new ApiError(httpStatus.NOT_FOUND, 'Production order not found');
+  if (order.status === 'pending') {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Release the order before floor work');
+  }
+  if (order.status === 'on-hold') {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'This order is on hold');
+  }
+  if ((order.lines || []).length > 1 && !body.lineId) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Choose an order line');
+  }
   const floors = order.floors || [];
   if (floors.length && body.stage !== order.currentFloor) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'This order is not on that floor');
   }
   const operatorId = body.operatorId || (user ? String(user.id || user._id || '') : '');
-  const completion = await FloorCompletion.create({ ...body, operatorId });
+  const completion = await FloorCompletion.create({ ...body, operatorId, lineId: body.lineId || null });
   const step = floors.find((row) => row.floor === body.stage);
   if (step) step.completedQty += body.qty;
   const segment = order.segments[order.segments.length - 1];
-  segment.completedQty += body.qty;
+  if (segment) segment.completedQty += body.qty;
+  const line = body.lineId ? order.lines.id(body.lineId) : order.lines.length === 1 ? order.lines[0] : null;
+  if (body.lineId && !line) throw new ApiError(httpStatus.BAD_REQUEST, 'Order line not found');
+  if (line) {
+    const lineStep = (line.floors || []).find((row) => row.floor === body.stage);
+    if (lineStep) lineStep.completedQty += body.qty;
+    const lineSegment = line.segments[line.segments.length - 1];
+    if (lineSegment) lineSegment.completedQty += body.qty;
+  }
+  if (order.status === 'released' || order.status === 'amended') order.status = 'in-progress';
   let toFloor = order.currentFloor || body.stage;
   if (step && step.completedQty >= order.targetQty) {
     const index = floors.findIndex((row) => row.floor === body.stage);
@@ -180,6 +257,7 @@ export const transferBundle = async (orderId, body, user) => {
   const last = await PieceBundle.findOne({ orderId: order.id }).sort({ number: -1 });
   const bundle = await PieceBundle.create({
     orderId: order.id,
+    lineId: body.lineId || null,
     number: (last?.number || 0) + 1,
     qty,
     closed: true,
@@ -278,6 +356,7 @@ export const recordPiece = async (body) => {
   const piece = await CutPiece.create({
     barcode: body.barcode || nextCode('PC'),
     orderId: body.orderId,
+    lineId: body.lineId || null,
     rollBarcode: body.rollBarcode || '',
     bundleId: bundle.id,
   });

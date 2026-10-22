@@ -171,6 +171,9 @@ router.get(
   ]),
   factory.listProductionOrders
 );
+router.get('/production/orders/articles', ...guard(ORDERS, 'read'), factory.listArticleLines);
+router.get('/production/orders/fabric-estimation', ...guard(ORDERS, 'read'), factory.fabricEstimation);
+router.get('/production/orders/upcoming', ...guard(ORDERS, 'read'), factory.upcomingFloors);
 router.get(
   '/production/orders/:orderId/logs',
   auth(),
@@ -187,6 +190,10 @@ router.get(
   factory.getProductionOrder
 );
 router.post('/production/orders', ...guard(ORDERS, 'create'), factory.releaseOrder);
+router.patch('/production/orders/:orderId', ...guard(ORDERS, 'update'), factory.updateOrder);
+router.post('/production/orders/:orderId/release', ...guard(ORDERS, 'update'), factory.releaseDraft);
+router.post('/production/orders/:orderId/hold', ...guard(ORDERS, 'update'), factory.holdOrder);
+router.delete('/production/orders/:orderId', ...guard(ORDERS, 'delete'), factory.deleteDraft);
 router.post('/production/orders/:orderId/amend', ...guard(ORDERS, 'update'), factory.amendOrder);
 router.post('/production/orders/:orderId/transfer', ...screens('create', FLOOR_SCREENS), factory.transferBundle);
 router.post('/production/completions', ...screens('create', FLOOR_SCREENS), factory.completeStage);

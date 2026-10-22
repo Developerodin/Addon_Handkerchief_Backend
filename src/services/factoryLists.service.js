@@ -35,17 +35,29 @@ const dateRange = (query) => {
 };
 
 /**
+ * Assigns ORD-000001 sequence numbers before a production-order read.
+ * @param {import('mongoose').Model} Model
+ */
+const ensureOrderNumbers = async (Model) => {
+  if (Model !== ProductionOrder) return;
+  const { backfillOrderNumbers } = await import('./production/orderNumber.js');
+  await backfillOrderNumbers();
+};
+
+/**
  * Pages a mongoose model in the catalog list shape.
  * @param {import('mongoose').Model} Model
  * @param {object} filter
- * @param {{ page?: string, limit?: string }} query
+ * @param {{ page?: string, limit?: string, sort?: string }} query
  */
 export const pageOf = async (Model, filter, query) => {
+  await ensureOrderNumbers(Model);
   const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 20));
   const page = Math.max(1, parseInt(query.page, 10) || 1);
   const skip = (page - 1) * limit;
+  const sort = query.sort === 'createdAt:asc' ? { createdAt: 1 } : { createdAt: -1 };
   const [results, totalResults] = await Promise.all([
-    Model.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+    Model.find(filter).sort(sort).skip(skip).limit(limit),
     Model.countDocuments(filter),
   ]);
   return {
@@ -420,11 +432,35 @@ export const listOrderLogs = (query) => {
   return pageOf(ProductionOrderLog, filter, query);
 };
 
-/** @param {object} query */
-export const listProductionOrders = (query) => {
-  const filter = searchFilter(query, ['productionType', 'revisionId', 'status', 'currentFloor', 'orderNote']);
+/**
+ * Orders list. Tile counts are for the whole collection, not the current page.
+ * @param {object} query
+ */
+export const listProductionOrders = async (query) => {
+  const filter = {};
+  if (query.priority) filter.priority = query.priority;
+  if (query.productionType) filter.productionType = query.productionType;
+  if (query.revisionId) filter.revisionId = query.revisionId;
   if (query.floor) filter.currentFloor = query.floor;
-  return pageOf(ProductionOrder, filter, query);
+  else if (query.currentFloor) filter.currentFloor = query.currentFloor;
+  if (query.tile === 'pending') filter.status = { $in: ['pending', 'released'] };
+  else if (query.tile === 'in-progress') filter.status = { $in: ['in-progress', 'amended'] };
+  else if (query.tile === 'completed') filter.status = 'closed';
+  else if (query.tile === 'on-hold') filter.status = 'on-hold';
+  else if (query.status) filter.status = query.status;
+  if (query.search) {
+    const pattern = new RegExp(String(query.search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    filter.$or = [
+      { orderNumber: pattern },
+      { orderNote: pattern },
+      { buyer: pattern },
+      { 'lines.factoryCode': pattern },
+      { 'lines.articleName': pattern },
+    ];
+  }
+  const { orderStatusCounts } = await import('./production/orderViews.service.js');
+  const [page, counts] = await Promise.all([pageOf(ProductionOrder, filter, query), orderStatusCounts()]);
+  return { ...page, counts };
 };
 
 /**
@@ -432,6 +468,7 @@ export const listProductionOrders = (query) => {
  * @param {string} orderId
  */
 export const getProductionOrder = async (orderId) => {
+  await ensureOrderNumbers(ProductionOrder);
   const order = await ProductionOrder.findById(orderId);
   if (!order) throw new ApiError(httpStatus.NOT_FOUND, 'Production order not found');
   const [completions, bundles] = await Promise.all([

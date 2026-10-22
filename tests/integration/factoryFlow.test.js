@@ -17,6 +17,8 @@ import Process from '../../src/models/process.model.js';
 import Product from '../../src/models/product.model.js';
 import { PurchaseOrder } from '../../src/models/store.model.js';
 import { ProductionOrder } from '../../src/models/production.model.js';
+import { VersionPin } from '../../src/models/versioning.model.js';
+import { publishItemDefinition } from '../../src/services/catalogPublish.service.js';
 import { QualityResult } from '../../src/models/quality.model.js';
 import { SalesInvoice } from '../../src/models/invoice.model.js';
 
@@ -474,4 +476,91 @@ describe('Factory flow', () => {
     },
     60000
   );
+
+  test('a draft does not pin, and release keeps that revision after a later publish', async () => {
+    const category = await Category.create({ name: 'Raise cat' });
+    const fabric = await FabricCatalog.create({ name: 'Raise cambric', rate: 8 });
+    const product = await Product.create({
+      name: 'Show hanky',
+      category: category.id,
+      productionType: 'normal',
+      piecesPerCut: 4,
+      factoryCode: 'A309',
+      articleName: 'Half terry',
+      bom: [
+        {
+          bomLineId: 'fab-1',
+          fabricCatalogId: fabric.id,
+          fabricName: 'Raise cambric',
+          quantity: 0.2,
+          unitCost: 8,
+        },
+      ],
+    });
+    const published = await publishItemDefinition(product);
+    const revisionId = String(published.revision.id || published.revision._id);
+    const draft = await api
+      .post('/v1/production/orders')
+      .set(auth)
+      .send({
+        buyer: 'Showroom',
+        priority: 'High',
+        orderNote: 'October',
+        requiredBy: '2026-12-01',
+        lines: [{ itemId: String(product.id), quantity: 100, priority: 'High', revisionId, piecesPerCut: 4, remarks: 'rush' }],
+      })
+      .expect(httpStatus.CREATED);
+    expect(draft.body.status).toBe('pending');
+    expect(draft.body.orderNumber).toMatch(/^ORD-\d{6}$/);
+    expect(await VersionPin.countDocuments({ scopeId: published.scopeId })).toBe(0);
+
+    const preview = await api
+      .post(`/v1/production/orders/${draft.body.id}/release`)
+      .set(auth)
+      .send({ confirm: false })
+      .expect(httpStatus.OK);
+    expect(preview.body.preview).toBe(true);
+    expect(preview.body.lines[0].snapshot.piecesPerCut).toBe(4);
+    expect(preview.body.lines[0].snapshot.fabricBom[0].metresPerPiece).toBe(0.2);
+
+    const released = await api
+      .post(`/v1/production/orders/${draft.body.id}/release`)
+      .set(auth)
+      .send({ confirm: true })
+      .expect(httpStatus.OK);
+    expect(released.body.status).toBe('released');
+    expect(released.body.lines[0].pinId).toBeTruthy();
+    expect(released.body.lines[0].snapshot.currency).toBe('INR');
+    expect(await VersionPin.countDocuments({ scopeId: published.scopeId, kind: 'release' })).toBe(1);
+
+    product.bom[0].quantity = 9;
+    product.markModified('bom');
+    await product.save();
+    const nextPublish = await publishItemDefinition(product);
+    const nextRevisionId = String(nextPublish.revision.id || nextPublish.revision._id);
+    const stored = await ProductionOrder.findById(draft.body.id);
+    expect(stored.lines[0].snapshot.fabricBom[0].metresPerPiece).toBe(0.2);
+    expect(stored.revisionId).toBe(revisionId);
+
+    await api
+      .post('/v1/production/completions')
+      .set(auth)
+      .send({ eventId: 'raise-cut', orderId: draft.body.id, stage: 'vertical-cut', qty: 40, site: 'factory' })
+      .expect(httpStatus.CREATED);
+    const amended = await api
+      .post(`/v1/production/orders/${draft.body.id}/amend`)
+      .set(auth)
+      .send({ revisionId: nextRevisionId, remainingQty: 60, lineId: released.body.lines[0].id })
+      .expect(httpStatus.OK);
+    expect(amended.body.segments[0].qty).toBe(40);
+    expect(amended.body.segments[1].revisionId).toBe(nextRevisionId);
+    expect(amended.body.segments[1].qty).toBe(60);
+    expect(await VersionPin.countDocuments({ scopeId: published.scopeId, kind: 'amendment' })).toBe(1);
+
+    const logs = await api.get(`/v1/production/orders/${draft.body.id}/logs`).set(auth).expect(httpStatus.OK);
+    const actions = logs.body.results.map((row) => row.action);
+    expect(actions).toContain('order-created');
+    expect(actions).toContain('released');
+    expect(actions).toContain('amend');
+  });
 });

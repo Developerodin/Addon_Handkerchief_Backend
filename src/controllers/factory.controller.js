@@ -8,6 +8,8 @@ import * as processRolls from '../services/factory/processRolls.service.js';
 import * as grn from '../services/factory/grn.service.js';
 import * as vendorReturns from '../services/factory/vendorReturn.service.js';
 import * as production from '../services/production.service.js';
+import * as orderRaise from '../services/production/orderRaise.service.js';
+import * as orderViews from '../services/production/orderViews.service.js';
 import * as quality from '../services/quality.service.js';
 import * as warehouse from '../services/warehouse.service.js';
 import * as invoice from '../services/invoice.service.js';
@@ -51,8 +53,15 @@ export const vendorReturn = send((body, _params, user) => vendorReturns.createVe
 
 export const updatePurchaseOrder = send((body, params) => store.updatePurchaseOrder(params.poId, body));
 export const deletePurchaseOrder = send((_body, params) => store.deletePurchaseOrder(params.poId));
-export const releaseOrder = send(production.releaseOrder, httpStatus.CREATED);
-export const amendOrder = send((body, params) => production.amendOrder(params.orderId, body));
+export const releaseOrder = send((body, params, user) => {
+  if (Array.isArray(body.lines)) return orderRaise.createDraft(body, user);
+  return production.releaseOrder(body, params, user);
+}, httpStatus.CREATED);
+export const updateOrder = send((body, params, user) => orderRaise.updateOrder(params.orderId, body, user));
+export const releaseDraft = send((body, params, user) => orderRaise.releaseDraft(params.orderId, body, user));
+export const holdOrder = send((body, params, user) => orderRaise.holdOrder(params.orderId, body, user));
+export const deleteDraft = send((_body, params) => orderRaise.deleteDraft(params.orderId));
+export const amendOrder = send((body, params, user) => production.amendOrder(params.orderId, body, user));
 export const completeStage = send(production.completeStage, httpStatus.CREATED);
 export const transferBundle = send((body, params, user) => production.transferBundle(params.orderId, body, user), httpStatus.CREATED);
 export const receiveBundle = send(production.receiveBundle, httpStatus.CREATED);
@@ -118,6 +127,9 @@ export const listOrderLogsForOrder = sendQuery((query, params) =>
   lists.listOrderLogs({ ...query, orderId: params.orderId })
 );
 export const listProductionOrders = sendQuery(lists.listProductionOrders);
+export const listArticleLines = sendQuery(orderViews.listArticleLines);
+export const fabricEstimation = sendQuery(orderViews.fabricEstimation);
+export const upcomingFloors = sendQuery(orderViews.upcomingByFloor);
 export const getProductionOrder = sendQuery((_query, params) => lists.getProductionOrder(params.orderId));
 export const listClients = sendQuery(lists.listClients);
 export const listClientOrders = sendQuery(lists.listClientOrders);
