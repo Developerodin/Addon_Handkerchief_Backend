@@ -19,6 +19,7 @@ const packagingBomItem = Joi.object().keys({
   quantity: Joi.number().min(0),
   unitCost: Joi.number().min(0),
   materialRole: Joi.string().valid('sewing-thread', 'embroidery-thread', 'packing'),
+  bomLineId: Joi.string().allow(''),
 });
 
 const createProduct = {

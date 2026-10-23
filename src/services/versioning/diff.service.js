@@ -60,11 +60,24 @@ export const validateLines = (lines) => {
     }
     const line = canonicalLine(raw);
     if (seen.has(line.lineId)) {
-      return { ok: false, message: `VALIDATION FAILED: duplicate lineId ${line.lineId}` };
+      if (String(line.lineId).startsWith('pack:')) {
+        return {
+          ok: false,
+          message:
+            'Packaging BOM has the same material and role more than once. Use each material+role only once, or change the role on one row.',
+        };
+      }
+      return {
+        ok: false,
+        message: 'The BOM has a duplicate line. Remove the repeated row and try again.',
+      };
     }
     seen.add(line.lineId);
     if (typeof line.quantity !== 'number' || Number.isNaN(line.quantity) || line.quantity < 0) {
-      return { ok: false, message: `VALIDATION FAILED: negative or invalid quantity on ${line.lineId}` };
+      return {
+        ok: false,
+        message: 'A BOM line has an invalid quantity. Enter zero or a positive number and try again.',
+      };
     }
   }
   return { ok: true };

@@ -7,6 +7,26 @@ import { publishItemDefinition } from './catalogPublish.service.js';
 
 const MATERIAL_ROLES = new Set(['sewing-thread', 'embroidery-thread', 'packing']);
 
+/**
+ * Pull a Mongo id string out of a raw id, populated doc, or { id/_id } object.
+ * @param {unknown} value
+ * @returns {string}
+ */
+const toObjectIdString = (value) => {
+  if (value == null || value === '') return '';
+  if (typeof value === 'string' || typeof value === 'number') return String(value).trim();
+  if (typeof value === 'object') {
+    const asString = typeof value.toString === 'function' ? String(value) : '';
+    if (/^[a-fA-F0-9]{24}$/.test(asString)) return asString;
+    const nested = value._id != null && value._id !== value ? value._id : value.id != null && value.id !== value ? value.id : null;
+    if (nested == null) return '';
+    if (typeof nested === 'string' || typeof nested === 'number') return String(nested).trim();
+    const nestedString = typeof nested.toString === 'function' ? String(nested) : '';
+    return /^[a-fA-F0-9]{24}$/.test(nestedString) ? nestedString : '';
+  }
+  return '';
+};
+
 const normalizeProductionType = (value) => {
   if (value === 'embroidery') return 'embroidery';
   if (value === 'sticker') return 'sticker';
@@ -33,16 +53,11 @@ const normalizePiecesPerCut = (value) => {
 const mapBomItems = (bom) =>
   (Array.isArray(bom) ? bom : [])
     .map((item) => {
-      const fabricCatalogId =
-        item?.fabricCatalogId ||
-        item?.fabricCatalog ||
-        item?.yarnCatalogId ||
-        item?.yarnCatalog ||
-        item?._id ||
-        item?.id;
-      const quantity = item?.quantity;
-      const normalizedId = fabricCatalogId ? String(fabricCatalogId).trim() : '';
+      const normalizedId = toObjectIdString(
+        item?.fabricCatalogId || item?.fabricCatalog || item?.yarnCatalogId || item?.yarnCatalog
+      );
       if (!normalizedId || !mongoose.Types.ObjectId.isValid(normalizedId)) return null;
+      const quantity = item?.quantity;
       const parsedQty = typeof quantity === 'number' ? quantity : quantity !== undefined ? parseFloat(quantity) || 0 : 0;
       const unitCost =
         typeof item?.unitCost === 'number' ? item.unitCost : item?.unitCost !== undefined ? parseFloat(item.unitCost) || 0 : 0;
@@ -59,25 +74,27 @@ const mapBomItems = (bom) =>
 
 /**
  * Keep packaging-line role. Unknown roles become packing.
+ * Each line gets a stable bomLineId so versioning can tell two packing rows apart.
  * @param {Array<Object>|undefined} lines
- * @returns {Array<{rawMaterialId: string, quantity: number, unitCost: number, materialRole: string}>}
+ * @returns {Array<{rawMaterialId: string, quantity: number, unitCost: number, materialRole: string, bomLineId: string}>}
  */
 const mapRawMaterialItems = (lines) =>
   (Array.isArray(lines) ? lines : [])
     .map((item) => {
-      const rawMaterialId = item?.rawMaterialId || item?.rawMaterial || item?._id || item?.id;
-      const normalizedId = rawMaterialId ? String(rawMaterialId).trim() : '';
+      const normalizedId = toObjectIdString(item?.rawMaterialId || item?.rawMaterial);
       if (!normalizedId || !mongoose.Types.ObjectId.isValid(normalizedId)) return null;
       const quantity = item?.quantity;
       const parsedQty = typeof quantity === 'number' ? quantity : quantity !== undefined ? parseFloat(quantity) || 0 : 0;
       const unitCost =
         typeof item?.unitCost === 'number' ? item.unitCost : item?.unitCost !== undefined ? parseFloat(item.unitCost) || 0 : 0;
       const materialRole = MATERIAL_ROLES.has(item?.materialRole) ? item.materialRole : 'packing';
+      const bomLineId = item?.bomLineId ? String(item.bomLineId).trim() : new mongoose.Types.ObjectId().toString();
       return {
         rawMaterialId: normalizedId,
         quantity: parsedQty < 0 ? 0 : parsedQty,
         unitCost: unitCost < 0 ? 0 : unitCost,
         materialRole,
+        bomLineId,
       };
     })
     .filter(Boolean);
@@ -195,7 +212,11 @@ const ensureValidStyleCodes = async (styleCodeIds) => {
  * @returns {Promise<Product>}
  */
 export const createProduct = async (productBody) => {
-  if (productBody.softwareCode && (await Product.findOne({ softwareCode: productBody.softwareCode }))) {
+  const softwareCode =
+    productBody.softwareCode != null && String(productBody.softwareCode).trim()
+      ? String(productBody.softwareCode).trim()
+      : undefined;
+  if (softwareCode && (await Product.findOne({ softwareCode }))) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Software code already taken');
   }
   const styleCodes = await ensureValidStyleCodes(productBody.styleCodes);
@@ -207,13 +228,24 @@ export const createProduct = async (productBody) => {
     vendorName: productBody.vendorName != null ? String(productBody.vendorName).trim() : '',
     ...(piecesPerCut !== undefined ? { piecesPerCut } : {}),
   };
+  // Blank softwareCode must be omitted — the unique index treats ""/null as a real key.
+  if (softwareCode) payload.softwareCode = softwareCode;
+  else delete payload.softwareCode;
   if (Array.isArray(productBody.bom)) {
     payload.bom = mapBomItems(productBody.bom);
   }
   if (Array.isArray(productBody.rawMaterials)) {
     payload.rawMaterials = mapRawMaterialItems(productBody.rawMaterials);
   }
-  const created = await Product.create(payload);
+  let created;
+  try {
+    created = await Product.create(payload);
+  } catch (error) {
+    if (error?.code === 11000 && String(error?.message || '').includes('softwareCode')) {
+      throw new ApiError(httpStatus.BAD_REQUEST, 'Software code already taken');
+    }
+    throw error;
+  }
   await publishItemDefinition(created, productBody.actorId);
   return created;
 };
@@ -452,18 +484,39 @@ export const getProductByCode = async (factoryCode, internalCode) => {
  * @returns {Promise<Product>}
  */
 export const updateProductById = async (productId, updateBody) => {
-  const product = await getProductById(productId);
+  // Load without populate. Saving a document that still has populated refs
+  // (category / bom.fabricCatalogId / rawMaterials / processes) CastErrors and
+  // production masks that as a generic 500 Internal Server Error.
+  const product = await Product.findById(productId);
   if (!product) {
     throw new ApiError(httpStatus.NOT_FOUND, 'Product not found');
   }
-  if (updateBody.softwareCode && (await Product.findOne({ softwareCode: updateBody.softwareCode, _id: { $ne: productId } }))) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'Software code already taken');
+  if (updateBody.softwareCode !== undefined) {
+    const softwareCode =
+      updateBody.softwareCode != null && String(updateBody.softwareCode).trim()
+        ? String(updateBody.softwareCode).trim()
+        : '';
+    if (softwareCode && (await Product.findOne({ softwareCode, _id: { $ne: productId } }))) {
+      throw new ApiError(httpStatus.BAD_REQUEST, 'Software code already taken');
+    }
   }
   let styleCodes;
   if (updateBody.styleCodes) {
     styleCodes = await ensureValidStyleCodes(updateBody.styleCodes);
   }
   const updatePayload = { ...updateBody, ...(styleCodes ? { styleCodes } : {}) };
+  if (updatePayload.softwareCode !== undefined) {
+    const softwareCode =
+      updatePayload.softwareCode != null && String(updatePayload.softwareCode).trim()
+        ? String(updatePayload.softwareCode).trim()
+        : '';
+    if (softwareCode) updatePayload.softwareCode = softwareCode;
+    else {
+      delete updatePayload.softwareCode;
+      product.softwareCode = undefined;
+      product.set('softwareCode', undefined);
+    }
+  }
   if (updatePayload.productionType !== undefined) {
     updatePayload.productionType = normalizeProductionType(updatePayload.productionType);
   }
@@ -501,7 +554,14 @@ export const updateProductById = async (productId, updateBody) => {
   }
 
   Object.assign(product, updatePayload);
-  await product.save();
+  try {
+    await product.save();
+  } catch (error) {
+    if (error?.code === 11000 && String(error?.message || '').includes('softwareCode')) {
+      throw new ApiError(httpStatus.BAD_REQUEST, 'Software code already taken');
+    }
+    throw error;
+  }
   await publishItemDefinition(product, updateBody.actorId);
   return product;
 };

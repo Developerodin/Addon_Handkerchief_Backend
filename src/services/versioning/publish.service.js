@@ -8,9 +8,20 @@ import { reconstructState } from './checkpoint.service.js';
 
 const SCHEMA_VERSION = 1;
 
+const isTransactionUnsupported = (error) => {
+  const message = String(error?.message || '');
+  return (
+    error?.code === 20 ||
+    message.includes('Transaction numbers are only allowed') ||
+    (message.includes('transaction') && message.includes('replica set')) ||
+    (message.includes('not support') && message.includes('transaction'))
+  );
+};
+
 /**
- * Runs the callback in one Mongo transaction. A thrown error rolls the writes back.
- * @param {(session: import('mongoose').ClientSession) => Promise<unknown>} work
+ * Runs the callback in one Mongo transaction when the server supports it.
+ * Falls back to a non-transactional write on standalone MongoDB.
+ * @param {(session: import('mongoose').ClientSession|null) => Promise<unknown>} work
  * @returns {Promise<unknown>}
  */
 const runTransaction = async (work) => {
@@ -21,6 +32,12 @@ const runTransaction = async (work) => {
       result = await work(session);
     });
     return result;
+  } catch (error) {
+    if (isTransactionUnsupported(error)) {
+      console.warn('publishScope: transactions unavailable, falling back to non-transactional publish');
+      return work(null);
+    }
+    throw error;
   } finally {
     session.endSession();
   }
@@ -64,13 +81,15 @@ export const publishScope = async (input) => {
 
 /**
  * Writes one revision and the new effective pointer, or returns unchanged.
- * @param {import('mongoose').ClientSession} session
+ * @param {import('mongoose').ClientSession|null} session
  * @param {object} input
  * @param {object[]} proposed
  * @returns {Promise<object>}
  */
 const commitPublish = async (session, input, proposed) => {
-  const scope = await VersionScope.findOne({ scopeId: input.scopeId }).session(session);
+  const scopeQuery = VersionScope.findOne({ scopeId: input.scopeId });
+  if (session) scopeQuery.session(session);
+  const scope = await scopeQuery;
   const lock = scope ? scope.lockVersion : 0;
   if (lock !== input.expectedLockVersion) {
     throw new ApiError(httpStatus.CONFLICT, 'Stale lock');
@@ -88,42 +107,37 @@ const commitPublish = async (session, input, proposed) => {
 
   const nextLines = applyDeltas(currentLines, diff.deltas);
   const sequence = (scope?.sequence || 0) + 1;
-  const [revision] = await VersionRevision.create(
-    [
-      {
-        scopeId: input.scopeId,
-        sequence,
-        baseRevisionId: scope?.effectiveRevisionId || null,
-        deltas: diff.deltas,
-        schemaVersion: SCHEMA_VERSION,
-        canonicalizationVersion: CANONICALIZATION_VERSION,
-        dependencyPins: input.dependencyPins || [],
-        changeSetHash: hashValue(diff.deltas),
-        resultStateHash: hashValue(nextLines),
-        reason: input.reason || '',
-        actorId: input.actorId || null,
-      },
-    ],
-    { session }
-  );
+  const revisionDoc = {
+    scopeId: input.scopeId,
+    sequence,
+    baseRevisionId: scope?.effectiveRevisionId || null,
+    deltas: diff.deltas,
+    schemaVersion: SCHEMA_VERSION,
+    canonicalizationVersion: CANONICALIZATION_VERSION,
+    dependencyPins: input.dependencyPins || [],
+    changeSetHash: hashValue(diff.deltas),
+    resultStateHash: hashValue(nextLines),
+    reason: input.reason || '',
+    actorId: input.actorId || null,
+  };
+  const revision = session
+    ? (await VersionRevision.create([revisionDoc], { session }))[0]
+    : await VersionRevision.create(revisionDoc);
 
   let nextScope = scope;
   if (!scope) {
-    const created = await VersionScope.create(
-      [
-        {
-          scopeId: input.scopeId,
-          effectiveRevisionId: revision._id,
-          lockVersion: 1,
-          sequence,
-          effectiveState: { lines: nextLines },
-        },
-      ],
-      { session }
-    );
-    nextScope = created[0];
+    const scopeDoc = {
+      scopeId: input.scopeId,
+      effectiveRevisionId: revision._id,
+      lockVersion: 1,
+      sequence,
+      effectiveState: { lines: nextLines },
+    };
+    nextScope = session
+      ? (await VersionScope.create([scopeDoc], { session }))[0]
+      : await VersionScope.create(scopeDoc);
   } else {
-    const updated = await VersionScope.findOneAndUpdate(
+    const updateQuery = VersionScope.findOneAndUpdate(
       { _id: scope._id, lockVersion: input.expectedLockVersion },
       {
         $set: {
@@ -133,29 +147,31 @@ const commitPublish = async (session, input, proposed) => {
         },
         $inc: { lockVersion: 1 },
       },
-      { new: true, session }
+      { new: true }
     );
+    if (session) updateQuery.session(session);
+    const updated = await updateQuery;
     if (!updated) {
       throw new ApiError(httpStatus.CONFLICT, 'Stale lock');
     }
     nextScope = updated;
   }
 
-  await VersionChangeRequest.create(
-    [
-      {
-        scopeId: input.scopeId,
-        actorId: input.actorId || null,
-        source: input.source || 'api',
-        reason: input.reason || '',
-        baseRevisionId: revision.baseRevisionId,
-        expectedLockVersion: input.expectedLockVersion,
-        status: 'PUBLISHED',
-        proposedLines: proposed,
-      },
-    ],
-    { session }
-  );
+  const changeRequestDoc = {
+    scopeId: input.scopeId,
+    actorId: input.actorId || null,
+    source: input.source || 'api',
+    reason: input.reason || '',
+    baseRevisionId: revision.baseRevisionId,
+    expectedLockVersion: input.expectedLockVersion,
+    status: 'PUBLISHED',
+    proposedLines: proposed,
+  };
+  if (session) {
+    await VersionChangeRequest.create([changeRequestDoc], { session });
+  } else {
+    await VersionChangeRequest.create(changeRequestDoc);
+  }
 
   return { published: true, status: 'PUBLISHED', revision, scope: nextScope };
 };

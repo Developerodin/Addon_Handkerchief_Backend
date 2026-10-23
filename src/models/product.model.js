@@ -58,6 +58,12 @@ const packagingBomItemSchema = mongoose.Schema({
     enum: ['sewing-thread', 'embroidery-thread', 'packing'],
     default: 'packing',
   },
+  /** Stable line id so two packing rows with the same material/role stay distinct. */
+  bomLineId: {
+    type: String,
+    trim: true,
+    default: '',
+  },
 });
 
 const productSchema = mongoose.Schema(
