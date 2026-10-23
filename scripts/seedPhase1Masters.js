@@ -18,6 +18,7 @@ const ATTRIBUTES = [
   { name: 'Pattern', attributeType: 'Manufacturing', type: 'select', optionValues: [{ name: 'Plain' }, { name: 'Print' }, { name: 'Check' }] },
   { name: 'Border Type', attributeType: 'Manufacturing', type: 'select', optionValues: [{ name: 'Plain' }, { name: 'Lace' }, { name: 'Embroidery' }] },
   { name: 'Hemming Type', attributeType: 'Manufacturing', type: 'select', optionValues: [{ name: 'Vertical' }, { name: 'Horizontal' }] },
+  { name: 'Stitch type', attributeType: 'Manufacturing', type: 'select', optionValues: [{ name: 'Hem 1' }, { name: 'Hem 2' }, { name: 'Hem 3' }, { name: 'Hem 4' }] },
   { name: 'Embroidery', attributeType: 'Manufacturing', type: 'select', optionValues: [{ name: 'Yes' }, { name: 'No' }] },
   { name: 'Gender', attributeType: 'Warehouse', type: 'select', optionValues: [{ name: 'Unisex' }, { name: 'Men' }, { name: 'Women' }] },
   { name: 'Occasion', attributeType: 'Warehouse', type: 'select', optionValues: [{ name: 'Daily' }, { name: 'Gift' }, { name: 'Wedding' }] },

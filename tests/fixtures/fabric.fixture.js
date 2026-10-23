@@ -64,6 +64,7 @@ export const buildFabricCatalogPayload = (lookupIds = {}, overrides = {}) => ({
   design: 'Plain',
   wash: 'Yes',
   finish: 'NA',
+  stitchType: '',
   glm: 60,
   glmMeasurement: lookupIds.glmMeasurementId || null,
   finishedWidth: 44,

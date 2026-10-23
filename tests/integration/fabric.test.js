@@ -261,4 +261,66 @@ describe('Fabric Master API — sub-masters and catalog', () => {
     expect(createRes.body.wash).toBe('');
     expect(createRes.body.finish).toBe('');
   });
+
+  const ensureStitchTypeAttribute = async () => {
+    await api
+      .post('/v1/product-attributes')
+      .set(authHeader)
+      .send({
+        name: 'Stitch type',
+        attributeType: 'Manufacturing',
+        type: 'select',
+        required: false,
+        optionValues: [
+          { name: 'Hem 1', sortOrder: 1 },
+          { name: 'Hem 2', sortOrder: 2 },
+          { name: 'Hem 3', sortOrder: 3 },
+          { name: 'Hem 4', sortOrder: 4 },
+        ],
+      })
+      .expect(httpStatus.CREATED);
+  };
+
+  test('FabricCatalog: optional stitchType empty and valid Hem value', async () => {
+    await ensureStitchTypeAttribute();
+    const lookups = await createFabricLookups();
+
+    const emptyRes = await api
+      .post('/v1/fabric-catalogs')
+      .set(authHeader)
+      .send(buildFabricCatalogPayload(lookups, { stitchType: '' }))
+      .expect(httpStatus.CREATED);
+    expect(emptyRes.body.stitchType).toBe('');
+
+    const createRes = await api
+      .post('/v1/fabric-catalogs')
+      .set(authHeader)
+      .send(buildFabricCatalogPayload(lookups, { stitchType: 'hem 2' }))
+      .expect(httpStatus.CREATED);
+    expect(createRes.body.stitchType).toBe('Hem 2');
+
+    const searchRes = await api
+      .get('/v1/fabric-catalogs')
+      .set(authHeader)
+      .query({ search: 'Hem 2', limit: 50 })
+      .expect(httpStatus.OK);
+    expect(searchRes.body.results).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: createRes.body.id, stitchType: 'Hem 2' })])
+    );
+
+    const updateRes = await api
+      .patch(`/v1/fabric-catalogs/${createRes.body.id}`)
+      .set(authHeader)
+      .send({ stitchType: 'Hem 4' })
+      .expect(httpStatus.OK);
+    expect(updateRes.body.stitchType).toBe('Hem 4');
+  });
+
+  test('FabricCatalog: rejects invalid stitchType', async () => {
+    await ensureStitchTypeAttribute();
+    const lookups = await createFabricLookups();
+    const payload = buildFabricCatalogPayload(lookups, { stitchType: 'Hem 99' });
+
+    await api.post('/v1/fabric-catalogs').set(authHeader).send(payload).expect(httpStatus.BAD_REQUEST);
+  });
 });

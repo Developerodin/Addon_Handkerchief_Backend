@@ -18,6 +18,7 @@ const fabricCatalogBody = {
   design: Joi.string().valid('', 'Plain', 'Print'),
   wash: Joi.string().valid('', 'Yes', 'No'),
   finish: Joi.string().valid('', 'NA', 'N9', 'Silverdor', 'Anti Micobacterial'),
+  stitchType: Joi.string().allow('').trim(),
   glm: Joi.number().min(0),
   glmMeasurement: lookupId,
   finishedWidth: Joi.number().min(0),

@@ -6,8 +6,11 @@ import FabricQuality from '../models/fabricQuality.model.js';
 import FabricYarn from '../models/fabricYarn.model.js';
 import FabricCount from '../models/fabricCount.model.js';
 import FabricMeasurement from '../models/fabricMeasurement.model.js';
+import ProductAttribute from '../models/productAttribute.model.js';
 import ApiError from '../utils/ApiError.js';
 import { escapeRegex } from '../utils/fabricLookupCrud.js';
+
+const STITCH_TYPE_ATTRIBUTE_NAME = 'stitch type';
 
 const LOOKUP_FIELDS = [
   { idKey: 'fabricType', nameKey: 'fabricTypeName', Model: FabricType, label: 'Fabric type' },
@@ -47,12 +50,45 @@ const normalizeBody = (body) => {
       next[key] = String(next[key]).trim();
     }
   });
-  ['design', 'wash', 'finish'].forEach((key) => {
+  ['design', 'wash', 'finish', 'stitchType'].forEach((key) => {
     if (next[key] != null) {
       next[key] = String(next[key]).trim();
     }
   });
   return next;
+};
+
+const resolveStitchType = async (payload) => {
+  const next = { ...payload };
+  if (!Object.prototype.hasOwnProperty.call(next, 'stitchType')) return next;
+
+  const raw = next.stitchType == null ? '' : String(next.stitchType).trim();
+  if (!raw) {
+    next.stitchType = '';
+    return next;
+  }
+
+  const attribute = await ProductAttribute.findOne({
+    name: new RegExp(`^${escapeRegex(STITCH_TYPE_ATTRIBUTE_NAME)}$`, 'i'),
+  });
+  if (!attribute) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Stitch type attribute not found in attributes master');
+  }
+
+  const options = attribute.optionValues || [];
+  const byId = options.find((opt) => String(opt._id) === raw);
+  if (byId?.name) {
+    next.stitchType = byId.name;
+    return next;
+  }
+
+  const byName = options.find((opt) => (opt.name || '').toLowerCase() === raw.toLowerCase());
+  if (byName?.name) {
+    next.stitchType = byName.name;
+    return next;
+  }
+
+  throw new ApiError(httpStatus.BAD_REQUEST, 'Invalid Stitch type');
 };
 
 const resolveLookupNames = async (payload) => {
@@ -73,7 +109,7 @@ const resolveLookupNames = async (payload) => {
     }
     next[field.nameKey] = doc.name || '';
   }
-  return next;
+  return resolveStitchType(next);
 };
 
 const FABRIC_POPULATE = [
@@ -113,6 +149,7 @@ export const queryFabricCatalogs = async (filter, options, search) => {
         { countName: searchRegex },
         { construction: searchRegex },
         { weave: searchRegex },
+        { stitchType: searchRegex },
         { glmMeasurementName: searchRegex },
         { finishedWidthMeasurementName: searchRegex },
         { hsnCode: searchRegex },
