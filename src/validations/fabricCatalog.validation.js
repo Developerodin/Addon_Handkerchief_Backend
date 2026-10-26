@@ -4,7 +4,7 @@ import { objectId } from './custom.validation.js';
 const lookupId = Joi.string().custom(objectId).allow(null, '');
 
 const fabricCatalogBody = {
-  name: Joi.string(),
+  name: Joi.string().trim().allow('', null),
   fabricSortNo: Joi.string().allow(''),
   millOldFabricSortNo: Joi.string().allow(''),
   millNewFabricSortNo: Joi.string().allow(''),
@@ -32,10 +32,7 @@ const fabricCatalogBody = {
 };
 
 export const createFabricCatalog = {
-  body: Joi.object().keys({
-    name: Joi.string().required(),
-    ...fabricCatalogBody,
-  }),
+  body: Joi.object().keys(fabricCatalogBody),
 };
 
 export const getFabricCatalogs = {

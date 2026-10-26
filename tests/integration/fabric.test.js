@@ -125,6 +125,24 @@ const createFabricLookups = async () => {
   };
 };
 
+/**
+ * Expected catalog name from the five lookup labels.
+ * @param {object} lookups
+ * @param {object} [overrides]
+ * @returns {string}
+ */
+const expectedFabricName = (lookups, overrides = {}) =>
+  [
+    overrides.typeName ?? lookups.typeName,
+    overrides.colorName ?? lookups.colorName,
+    overrides.qualityName ?? lookups.qualityName,
+    overrides.yarnName ?? lookups.yarnName,
+    overrides.countName ?? lookups.countName,
+  ]
+    .map((part) => (part == null ? '' : String(part).trim()))
+    .filter(Boolean)
+    .join('-');
+
 describe('Fabric Master API — sub-masters and catalog', () => {
   test('FabricType: create, list, search, get, update, delete', async () => {
     const payload = buildFabricTypePayload();
@@ -188,7 +206,7 @@ describe('Fabric Master API — sub-masters and catalog', () => {
 
   test('FabricCatalog: create with lookups and denormalized names', async () => {
     const lookups = await createFabricLookups();
-    const payload = buildFabricCatalogPayload(lookups);
+    const payload = buildFabricCatalogPayload(lookups, { name: 'Manual Name Should Be Ignored' });
 
     const createRes = await api
       .post('/v1/fabric-catalogs')
@@ -196,6 +214,7 @@ describe('Fabric Master API — sub-masters and catalog', () => {
       .send(payload)
       .expect(httpStatus.CREATED);
 
+    expect(createRes.body.name).toBe(expectedFabricName(lookups));
     expect(createRes.body.fabricTypeName).toBe(lookups.typeName);
     expect(createRes.body.colourName).toBe(lookups.colorName);
     expect(createRes.body.qualityName).toBe(lookups.qualityName);
@@ -221,6 +240,7 @@ describe('Fabric Master API — sub-masters and catalog', () => {
       .send(payload)
       .expect(httpStatus.CREATED);
 
+    expect(createRes.body.name).toBe(expectedFabricName(lookups));
     expect(createRes.body.design).toBe('Plain');
     expect(createRes.body.wash).toBe('Yes');
     expect(createRes.body.finish).toBe('NA');
@@ -228,12 +248,56 @@ describe('Fabric Master API — sub-masters and catalog', () => {
     const updateRes = await api
       .patch(`/v1/fabric-catalogs/${createRes.body.id}`)
       .set(authHeader)
-      .send({ design: 'Print', wash: 'No', finish: 'Silverdor' })
+      .send({ design: 'Print', wash: 'No', finish: 'Silverdor', name: 'Still Ignored' })
       .expect(httpStatus.OK);
 
+    expect(updateRes.body.name).toBe(expectedFabricName(lookups));
     expect(updateRes.body.design).toBe('Print');
     expect(updateRes.body.wash).toBe('No');
     expect(updateRes.body.finish).toBe('Silverdor');
+  });
+
+  test('FabricCatalog: regenerates name when a lookup changes', async () => {
+    const lookups = await createFabricLookups();
+    const payload = buildFabricCatalogPayload(lookups);
+
+    const createRes = await api
+      .post('/v1/fabric-catalogs')
+      .set(authHeader)
+      .send(payload)
+      .expect(httpStatus.CREATED);
+
+    const typeRes = await api
+      .post('/v1/fabric-types')
+      .set(authHeader)
+      .send(buildFabricTypePayload({ name: 'Renamed Voile' }))
+      .expect(httpStatus.CREATED);
+
+    const updateRes = await api
+      .patch(`/v1/fabric-catalogs/${createRes.body.id}`)
+      .set(authHeader)
+      .send({ fabricType: typeRes.body.id })
+      .expect(httpStatus.OK);
+
+    expect(updateRes.body.fabricTypeName).toBe('Renamed Voile');
+    expect(updateRes.body.name).toBe(expectedFabricName(lookups, { typeName: 'Renamed Voile' }));
+  });
+
+  test('FabricCatalog: rejects create when no name lookups are set', async () => {
+    const payload = buildFabricCatalogPayload(
+      {},
+      {
+        name: '',
+        fabricType: null,
+        color: null,
+        quality: null,
+        yarn: null,
+        count: null,
+      }
+    );
+
+    const res = await api.post('/v1/fabric-catalogs').set(authHeader).send(payload).expect(httpStatus.BAD_REQUEST);
+    expect(res.body.message).toBe('Set at least one of fabric type, color, quality, yarn, or count');
   });
 
   test('FabricCatalog: rejects invalid finish enum', async () => {

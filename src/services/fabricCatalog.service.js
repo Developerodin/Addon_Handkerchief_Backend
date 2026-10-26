@@ -8,6 +8,7 @@ import FabricCount from '../models/fabricCount.model.js';
 import FabricMeasurement from '../models/fabricMeasurement.model.js';
 import ProductAttribute from '../models/productAttribute.model.js';
 import ApiError from '../utils/ApiError.js';
+import { buildFabricCatalogName } from '../utils/fabricCatalogName.util.js';
 import { escapeRegex } from '../utils/fabricLookupCrud.js';
 
 const STITCH_TYPE_ATTRIBUTE_NAME = 'stitch type';
@@ -112,6 +113,24 @@ const resolveLookupNames = async (payload) => {
   return resolveStitchType(next);
 };
 
+const FABRIC_NAME_LOOKUP_KEYS = ['fabricType', 'color', 'quality', 'yarn', 'count'];
+
+/**
+ * Builds the stored fabric name from denormalized lookup names.
+ * @param {object} doc
+ * @returns {string}
+ */
+const requireGeneratedFabricName = (doc) => {
+  const generated = buildFabricCatalogName(doc);
+  if (!generated) {
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      'Set at least one of fabric type, color, quality, yarn, or count'
+    );
+  }
+  return generated;
+};
+
 const FABRIC_POPULATE = [
   { path: 'fabricType', select: 'name status' },
   { path: 'color', select: 'name colorCode status' },
@@ -124,6 +143,7 @@ const FABRIC_POPULATE = [
 
 export const createFabricCatalog = async (body) => {
   const payload = await resolveLookupNames(normalizeBody(body));
+  payload.name = requireGeneratedFabricName(payload);
   if (payload.fabricSortNo) {
     const existing = await FabricCatalog.findOne({ fabricSortNo: payload.fabricSortNo });
     if (existing) throw new ApiError(httpStatus.BAD_REQUEST, 'Fabric sort number already exists');
@@ -169,6 +189,10 @@ export const updateFabricCatalogById = async (fabricId, updateBody) => {
   const fabric = await FabricCatalog.findById(fabricId);
   if (!fabric) throw new ApiError(httpStatus.NOT_FOUND, 'Fabric not found');
   const payload = await resolveLookupNames(normalizeBody(updateBody));
+  delete payload.name;
+  const shouldRegenerateName = FABRIC_NAME_LOOKUP_KEYS.some((key) =>
+    Object.prototype.hasOwnProperty.call(payload, key)
+  );
   if (payload.fabricSortNo) {
     const existing = await FabricCatalog.findOne({
       fabricSortNo: payload.fabricSortNo,
@@ -177,6 +201,9 @@ export const updateFabricCatalogById = async (fabricId, updateBody) => {
     if (existing) throw new ApiError(httpStatus.BAD_REQUEST, 'Fabric sort number already exists');
   }
   Object.assign(fabric, payload);
+  if (shouldRegenerateName) {
+    fabric.name = requireGeneratedFabricName(fabric);
+  }
   await fabric.save();
   return fabric.populate(FABRIC_POPULATE);
 };
