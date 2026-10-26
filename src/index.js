@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import app from './app.js';
 import config from './config/config.js';
 import logger from './config/logger.js';
+import { renameFabricGlmFieldsToGsm } from './utils/renameFabricGlmToGsm.js';
 
 const { emitWarning } = process;
 process.emitWarning = (warning, ...args) => {
@@ -11,8 +12,17 @@ process.emitWarning = (warning, ...args) => {
 };
 
 let server;
-mongoose.connect(config.mongoose.url, config.mongoose.options).then(() => {
+mongoose.connect(config.mongoose.url, config.mongoose.options).then(async () => {
   logger.info('Connected to MongoDB');
+  try {
+    const renamed = await renameFabricGlmFieldsToGsm();
+    if (renamed.modifiedCount > 0) {
+      logger.info(`Renamed GLM fields to GSM on ${renamed.modifiedCount} fabric catalog(s)`);
+    }
+  } catch (error) {
+    logger.error(error);
+    throw error;
+  }
   server = app.listen(config.port, () => {
     logger.info(`Listening to port ${config.port}`);
   });

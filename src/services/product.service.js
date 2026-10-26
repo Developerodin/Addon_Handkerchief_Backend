@@ -394,7 +394,7 @@ export const queryProducts = async (filter, options, search) => {
 export const getProductById = async (id) => {
   return Product.findById(id)
     .populate('category', 'name')
-    .populate('bom.fabricCatalogId', 'name fabricSortNo fabricTypeName colourName glm rate')
+    .populate('bom.fabricCatalogId', 'name fabricSortNo fabricTypeName colourName gsm rate')
     .populate('rawMaterials.rawMaterialId', 'name type rate unit')
     .populate('processes.processId', 'name type department');
 };
@@ -417,7 +417,7 @@ export const getProductsByFactoryCodes = async (factoryCodes) => {
 
   const products = await Product.find(filter)
     .populate('category', 'name')
-    .populate('bom.fabricCatalogId', 'name fabricSortNo fabricTypeName colourName glm rate')
+    .populate('bom.fabricCatalogId', 'name fabricSortNo fabricTypeName colourName gsm rate')
     .populate('rawMaterials.rawMaterialId', 'name type rate unit')
     .populate('processes.processId', 'name type department')
     .populate('styleCodes')
@@ -466,7 +466,7 @@ export const getProductByCode = async (factoryCode, internalCode) => {
   const product = await Product.findOne(filter)
     .populate('category', 'name')
     .populate('styleCodes')
-    .populate('bom.fabricCatalogId', 'name fabricSortNo fabricTypeName colourName glm rate')
+    .populate('bom.fabricCatalogId', 'name fabricSortNo fabricTypeName colourName gsm rate')
     .populate('rawMaterials.rawMaterialId', 'name type rate unit')
     .populate('processes.processId', 'name type department');
   

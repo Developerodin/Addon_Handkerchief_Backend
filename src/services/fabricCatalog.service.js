@@ -20,10 +20,10 @@ const LOOKUP_FIELDS = [
   { idKey: 'yarn', nameKey: 'yarnName', Model: FabricYarn, label: 'Fabric yarn' },
   { idKey: 'count', nameKey: 'countName', Model: FabricCount, label: 'Fabric count' },
   {
-    idKey: 'glmMeasurement',
-    nameKey: 'glmMeasurementName',
+    idKey: 'gsmMeasurement',
+    nameKey: 'gsmMeasurementName',
     Model: FabricMeasurement,
-    label: 'GLM measurement',
+    label: 'GSM measurement',
     category: 'weight',
   },
   {
@@ -38,7 +38,7 @@ const LOOKUP_FIELDS = [
 const normalizeBody = (body) => {
   if (!body) return body;
   const next = { ...body };
-  ['fabricType', 'color', 'quality', 'yarn', 'count', 'glmMeasurement', 'finishedWidthMeasurement'].forEach(
+  ['fabricType', 'color', 'quality', 'yarn', 'count', 'gsmMeasurement', 'finishedWidthMeasurement'].forEach(
     (key) => {
       if (next[key] === '') next[key] = null;
     }
@@ -137,7 +137,7 @@ const FABRIC_POPULATE = [
   { path: 'quality', select: 'name composition primaryFiber primaryFiberPercent secondaryFiber secondaryFiberPercent grade status' },
   { path: 'yarn', select: 'name status' },
   { path: 'count', select: 'name status' },
-  { path: 'glmMeasurement', select: 'name symbol category status' },
+  { path: 'gsmMeasurement', select: 'name symbol category status' },
   { path: 'finishedWidthMeasurement', select: 'name symbol category status' },
 ];
 
@@ -170,7 +170,7 @@ export const queryFabricCatalogs = async (filter, options, search) => {
         { construction: searchRegex },
         { weave: searchRegex },
         { stitchType: searchRegex },
-        { glmMeasurementName: searchRegex },
+        { gsmMeasurementName: searchRegex },
         { finishedWidthMeasurementName: searchRegex },
         { hsnCode: searchRegex },
         { remark: searchRegex },

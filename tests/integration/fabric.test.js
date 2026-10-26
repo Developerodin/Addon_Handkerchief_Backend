@@ -96,7 +96,7 @@ const createFabricLookups = async () => {
     .set(authHeader)
     .send(buildFabricCountPayload({ name: 'Test 60COMPX60COMP' }))
     .expect(httpStatus.CREATED);
-  const glmMeasurementRes = await api
+  const gsmMeasurementRes = await api
     .post('/v1/fabric-measurements')
     .set(authHeader)
     .send(buildFabricMeasurementPayload({ name: 'Test GSM', symbol: 'gsm', category: 'weight' }))
@@ -113,14 +113,14 @@ const createFabricLookups = async () => {
     qualityId: qualityRes.body.id,
     yarnId: yarnRes.body.id,
     countId: countRes.body.id,
-    glmMeasurementId: glmMeasurementRes.body.id,
+    gsmMeasurementId: gsmMeasurementRes.body.id,
     finishedWidthMeasurementId: widthMeasurementRes.body.id,
     typeName: typeRes.body.name,
     colorName: colorRes.body.name,
     qualityName: qualityRes.body.name,
     yarnName: yarnRes.body.name,
     countName: countRes.body.name,
-    glmMeasurementName: glmMeasurementRes.body.name,
+    gsmMeasurementName: gsmMeasurementRes.body.name,
     widthMeasurementName: widthMeasurementRes.body.name,
   };
 };
@@ -222,7 +222,7 @@ describe('Fabric Master API — sub-masters and catalog', () => {
     expect(createRes.body.countName).toBe(lookups.countName);
     expect(createRes.body.millOldFabricSortNo).toBe('17223');
     expect(createRes.body.millNewFabricSortNo).toBe('AW0017223AB0586');
-    expect(createRes.body.glmMeasurementName).toBe(lookups.glmMeasurementName);
+    expect(createRes.body.gsmMeasurementName).toBe(lookups.gsmMeasurementName);
     expect(createRes.body.finishedWidthMeasurementName).toBe(lookups.widthMeasurementName);
   });
 

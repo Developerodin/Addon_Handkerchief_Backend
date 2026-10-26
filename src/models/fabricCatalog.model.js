@@ -103,17 +103,17 @@ const fabricCatalogSchema = mongoose.Schema(
       trim: true,
       default: '',
     },
-    glm: {
+    gsm: {
       type: Number,
       min: 0,
       default: 0,
     },
-    glmMeasurement: {
+    gsmMeasurement: {
       type: mongoose.SchemaTypes.ObjectId,
       ref: 'FabricMeasurement',
       default: null,
     },
-    glmMeasurementName: {
+    gsmMeasurementName: {
       type: String,
       trim: true,
       default: '',

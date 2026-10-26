@@ -7,7 +7,6 @@ export const DEFAULT_FABRIC_MEASUREMENTS = [
   { name: 'Meter', symbol: 'm', category: 'length' },
   { name: 'Yard', symbol: 'yd', category: 'length' },
   { name: 'Foot', symbol: 'ft', category: 'length' },
-  { name: 'GLM', symbol: 'glm', category: 'weight' },
   { name: 'GSM', symbol: 'gsm', category: 'weight' },
   { name: 'Gram', symbol: 'g', category: 'weight' },
   { name: 'Kilogram', symbol: 'kg', category: 'weight' },
