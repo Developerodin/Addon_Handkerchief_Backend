@@ -15,6 +15,7 @@ import { SalesInvoice } from '../models/invoice.model.js';
 import StorageRack from '../models/storageRack.model.js';
 import { stampFloorOntoCodes } from './factory/rackSlots.service.js';
 import { buildRollTrack } from './factory/rollTrack.service.js';
+import { attachFabricIssue } from './factory/fabricIssue.service.js';
 
 const OFF_RACK = new Set(['', 'floor', 'vendor', 'dispatched']);
 
@@ -460,7 +461,8 @@ export const listProductionOrders = async (query) => {
   }
   const { orderStatusCounts } = await import('./production/orderViews.service.js');
   const [page, counts] = await Promise.all([pageOf(ProductionOrder, filter, query), orderStatusCounts()]);
-  return { ...page, counts };
+  const results = await attachFabricIssue(page.results);
+  return { ...page, results, counts };
 };
 
 /**

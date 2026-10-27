@@ -256,3 +256,88 @@ export async function completeFabricIssue(body, params, user) {
   }
   return order.toJSON();
 }
+
+/**
+ * Metres on the pinned bill of material. Issued rolls do not reduce this.
+ * @param {object} order
+ */
+function requiredMetres(order) {
+  let total = 0;
+  for (const line of order.lines || []) {
+    const qty = Number(line.quantity) || 0;
+    for (const fabric of line.snapshot?.fabricBom || []) {
+      const pinned = Number(fabric.requiredMetres);
+      total += pinned > 0 ? pinned : Math.round((Number(fabric.metresPerPiece) || 0) * qty * 1000) / 1000;
+    }
+  }
+  return Math.round(total * 1000) / 1000;
+}
+
+/**
+ * Metres from the live bill of material when the line was not pinned.
+ * A missing revision is skipped so one article cannot blank the orders list.
+ * @param {object} order mongoose order
+ */
+async function liveMetres(order) {
+  let total = 0;
+  for (const line of order.lines || []) {
+    let bom = [];
+    try {
+      bom = await fabricBomForLine(order, line);
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+    }
+    const qty = Number(line.quantity) || 0;
+    for (const fabric of bom) {
+      total += Math.round((Number(fabric.metresPerPiece) || 0) * qty * 1000) / 1000;
+    }
+  }
+  return Math.round(total * 1000) / 1000;
+}
+
+/**
+ * Issued rolls, issued kilograms, and metres still on the bill of material.
+ * @param {object} order JSON order
+ * @param {{ rolls?: number, weightKg?: number }} stats
+ * @param {number} metres
+ */
+function fabricIssueSummary(order, stats, metres) {
+  const lines = order.lines || [];
+  const rolls = Number(stats.rolls) || 0;
+  const weightKg = Math.round((Number(stats.weightKg) || 0) * 100) / 100;
+  let status = 'not-issued';
+  if (lines.length > 0 && lines.every((line) => line.fabricIssueStatus === 'completed')) status = 'all-issued';
+  else if (rolls > 0 || lines.some((line) => line.fabricIssueStatus === 'completed')) status = 'in-progress';
+  return { status, rolls, weightKg, requiredMetres: metres };
+}
+
+/**
+ * Adds fabric-issue totals onto each order in a page. One query for the page, not per row.
+ * @param {object[]} docs production order documents
+ */
+export async function attachFabricIssue(docs) {
+  const ids = docs.map((doc) => doc._id).filter(Boolean);
+  const grouped = ids.length
+    ? await StockMovement.aggregate([
+        { $match: { kind: 'issue', entityType: 'roll', orderId: { $in: ids } } },
+        {
+          $group: {
+            _id: '$orderId',
+            rolls: { $sum: 1 },
+            weightKg: { $sum: { $ifNull: ['$netWeight', 0] } },
+          },
+        },
+      ])
+    : [];
+  const byId = new Map(grouped.map((row) => [String(row._id), row]));
+  const results = [];
+  for (const doc of docs) {
+    const json = doc.toJSON();
+    const pinned = requiredMetres(json);
+    const metres = pinned > 0 ? pinned : await liveMetres(doc);
+    const hit = byId.get(String(json.id)) || { rolls: 0, weightKg: 0 };
+    json.fabricIssue = fabricIssueSummary(json, hit, metres);
+    results.push(json);
+  }
+  return results;
+}
