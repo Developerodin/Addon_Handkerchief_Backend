@@ -25,6 +25,21 @@ export const scopeIdFor = (product) => {
 };
 
 /**
+ * Fabric rows on the item itself. Used when a revision has no fabric lines.
+ * @param {object} product
+ */
+export const fabricLinesFromProduct = (product) =>
+  (product?.bom || [])
+    .map((row) => ({
+      bomLineId: String(row.bomLineId || row._id || ''),
+      fabricCatalogId: String(row.fabricCatalogId?._id || row.fabricCatalogId?.id || row.fabricCatalogId || ''),
+      fabricName: row.fabricName || row.fabricCatalogId?.name || '',
+      metresPerPiece: Number(row.quantity) || 0,
+      unitCost: Number(row.unitCost) || 0,
+    }))
+    .filter((row) => row.bomLineId || row.fabricName);
+
+/**
  * Freezes fabric, thread, packing, pieces per cut, and rates from a revision.
  * @param {object[]} versionLines
  * @param {object} product

@@ -9,13 +9,13 @@ import {
   StockMovement,
   VendorReturn,
 } from '../models/store.model.js';
-import { ProductionOrder } from '../models/production.model.js';
 import { nextCode } from './factory/ids.js';
 import { nextPurchaseOrderNumber } from './factory/purchaseOrderNumber.js';
 import { writeOrderLog } from './orderLog.service.js';
 import { placeRoll } from './factory/rackSlots.service.js';
 import { enqueueEvent } from './sync/sync.service.js';
 import { assertReceiptCutoffs, cutoffKey } from './factory/cutoffGate.js';
+import { issueFabricRoll } from './factory/fabricIssue.service.js';
 
 const OFF_RACK = new Set(['', 'floor', 'vendor', 'dispatched']);
 
@@ -382,22 +382,12 @@ export const issueRolls = async (body, user) => {
 };
 
 /**
- * Issues one scanned roll onto a production order. The lot must be QC passed and the roll on a rack.
- * @param {{ rollBarcode: string, orderId: string, eventId?: string }} body
+ * Issues one scanned roll onto a production order.
+ * The issue screen also sends the article line and fabric line.
+ * @param {object} body
  * @param {object | null} [user]
  */
-export const issueByBarcode = async (body, user) => {
-  if (!body.orderId) throw new ApiError(httpStatus.BAD_REQUEST, 'Production order is required');
-  const order = await ProductionOrder.findById(body.orderId);
-  if (!order) throw new ApiError(httpStatus.NOT_FOUND, 'Production order not found');
-  const roll = await FabricRoll.findOne({ barcode: body.rollBarcode });
-  if (!roll) throw new ApiError(httpStatus.NOT_FOUND, 'Roll not found');
-  const movements = await issueRolls(
-    { lotId: String(roll.lotId), rollBarcodes: [body.rollBarcode], orderId: order.id, eventId: body.eventId },
-    user
-  );
-  return movements[0];
-};
+export const issueByBarcode = (body, user) => issueFabricRoll(body, user);
 
 /**
  * @param {object} body

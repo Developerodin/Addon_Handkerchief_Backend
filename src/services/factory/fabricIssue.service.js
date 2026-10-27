@@ -1,0 +1,258 @@
+import httpStatus from 'http-status';
+import mongoose from 'mongoose';
+import ApiError from '../../utils/ApiError.js';
+import { FabricLot, FabricRoll, StockMovement } from '../../models/store.model.js';
+import { ProductionOrder, ProductionOrderLog } from '../../models/production.model.js';
+import Product from '../../models/product.model.js';
+import { writeOrderLog } from '../orderLog.service.js';
+import { buildSnapshot, fabricLinesFromProduct, linesForRevision } from '../production/orderSnapshot.js';
+
+const OFF_RACK = new Set(['', 'floor', 'vendor', 'dispatched']);
+const ISSUED = new Set(['issued', 'on-floor']);
+
+/**
+ * Latest scan that is still a basement rack. Floor and vendor are not racks.
+ * @param {string} barcode
+ */
+async function rackLocation(barcode) {
+  const row = await StockMovement.findOne({ entityType: 'roll', entityId: barcode }).sort({ createdAt: -1 });
+  const location = row?.toLocation || '';
+  return OFF_RACK.has(location) ? '' : location;
+}
+
+/**
+ * Fabric lines frozen on the article, or the live bill of material when it was not pinned.
+ * @param {object} order
+ * @param {object} line
+ */
+async function fabricBomForLine(order, line) {
+  if (line.pinId && line.snapshot) return line.snapshot.fabricBom || [];
+  if (line.snapshot?.fabricBom?.length) return line.snapshot.fabricBom;
+  const productId = line.itemId?._id || line.itemId;
+  if (!productId) return line.snapshot?.fabricBom || [];
+  const product = await Product.findById(productId);
+  if (!product) return line.snapshot?.fabricBom || [];
+  try {
+    const version = await linesForRevision(product, line.revisionId || order.revisionId);
+    const fromRevision = buildSnapshot(version.lines, product).fabricBom || [];
+    return fromRevision.length ? fromRevision : fabricLinesFromProduct(product);
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    const message = error instanceof Error ? error.message : 'Could not read the article fabric';
+    throw new ApiError(httpStatus.BAD_REQUEST, message);
+  }
+}
+
+/**
+ * @param {object[]} bom
+ * @param {string} bomLineId
+ */
+function findFabric(bom, bomLineId) {
+  const wanted = String(bomLineId || '');
+  return (bom || []).find((row) => {
+    const id = String(row.bomLineId || '');
+    if (id && id === wanted) return true;
+    return !id && row.fabricName && row.fabricName === wanted;
+  });
+}
+
+/**
+ * Catalog id wins when both sides have one. Otherwise the fabric name must match.
+ * @param {object} fabric
+ * @param {object} roll
+ */
+function fabricsMatch(fabric, roll) {
+  const bomId = String(fabric.fabricCatalogId || '');
+  const rollId = String(roll.fabricId || '');
+  if (bomId && rollId) return bomId === rollId;
+  const bomName = String(fabric.fabricName || '').trim().toLowerCase();
+  const rollName = String(roll.fabricName || '').trim().toLowerCase();
+  return Boolean(bomName) && bomName === rollName;
+}
+
+/**
+ * @param {object} fabric
+ * @param {object} roll
+ */
+function mismatchMessage(fabric, roll) {
+  const got = roll.fabricName || 'another fabric';
+  const need = fabric.fabricName || 'a different fabric';
+  return `This roll is ${got}. This line needs ${need}.`;
+}
+
+/**
+ * @param {object} line
+ * @param {object} fabric
+ */
+function issueRemarks(line, fabric) {
+  const article = [line.factoryCode, line.articleName].map((part) => String(part || '').trim()).filter(Boolean).join(' ');
+  const name = fabric?.fabricName || 'fabric';
+  return article ? `${article} · ${name}` : name;
+}
+
+/**
+ * Issues one scanned roll. With an article line, the roll must match that fabric.
+ * Without a line, the older order-only issue still moves the roll to the floor.
+ * @param {object} body
+ * @param {object | null} [user]
+ */
+export async function issueFabricRoll(body, user) {
+  if (!body.orderId) throw new ApiError(httpStatus.BAD_REQUEST, 'Production order is required');
+  const order = await ProductionOrder.findById(body.orderId);
+  if (!order) throw new ApiError(httpStatus.NOT_FOUND, 'Production order not found');
+
+  let line = null;
+  let fabric = null;
+  if (body.lineId) {
+    if (!body.bomLineId) throw new ApiError(httpStatus.BAD_REQUEST, 'Fabric line is required');
+    if (!mongoose.Types.ObjectId.isValid(body.lineId)) {
+      throw new ApiError(httpStatus.NOT_FOUND, 'Article not found on this order');
+    }
+    line = order.lines.id(body.lineId);
+    if (!line) throw new ApiError(httpStatus.NOT_FOUND, 'Article not found on this order');
+    if (line.fabricIssueStatus === 'completed') {
+      throw new ApiError(httpStatus.BAD_REQUEST, 'Fabric issue is complete for this article.');
+    }
+    const bom = await fabricBomForLine(order, line);
+    fabric = findFabric(bom, body.bomLineId);
+    if (!fabric) throw new ApiError(httpStatus.BAD_REQUEST, 'This fabric is not on the article');
+  }
+
+  const scanned = String(body.rollBarcode || '').trim();
+  const roll = await FabricRoll.findOne({ $or: [{ barcode: scanned }, { rollCode: scanned }] });
+  if (!roll) throw new ApiError(httpStatus.NOT_FOUND, 'Roll not found');
+  if (fabric && !fabricsMatch(fabric, roll)) {
+    throw new ApiError(httpStatus.BAD_REQUEST, mismatchMessage(fabric, roll));
+  }
+  if (ISSUED.has(roll.status)) throw new ApiError(httpStatus.BAD_REQUEST, 'This roll is already issued.');
+  if (roll.qcStatus === 'rejected' || roll.qcStatus === 'held') {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'A rejected or held roll cannot be issued');
+  }
+
+  const lot = await FabricLot.findById(roll.lotId);
+  if (!lot) throw new ApiError(httpStatus.NOT_FOUND, 'Lot not found');
+  if (lot.qcStatus !== 'passed') throw new ApiError(httpStatus.BAD_REQUEST, 'This roll has not passed QC.');
+
+  const fromLocation = await rackLocation(roll.barcode);
+  if (!fromLocation) throw new ApiError(httpStatus.BAD_REQUEST, 'This roll is not on a rack.');
+
+  if (body.eventId) {
+    const existing = await StockMovement.findOne({ eventId: body.eventId });
+    if (existing) return existing;
+  }
+
+  const movement = await StockMovement.create({
+    eventId: body.eventId || undefined,
+    entityType: 'roll',
+    entityId: roll.barcode,
+    kind: 'issue',
+    fromLocation,
+    toLocation: 'floor',
+    quantity: 1,
+    orderId: order.id,
+    lineId: line ? String(line.id || line._id) : '',
+    bomLineId: fabric ? String(fabric.bomLineId || body.bomLineId || '') : '',
+    fabricCatalogId: fabric ? String(fabric.fabricCatalogId || '') : String(roll.fabricId || ''),
+    fabricName: fabric?.fabricName || roll.fabricName || '',
+    netWeight: Number(roll.netWeight) || 0,
+    scaleWeight: Number(roll.scaleWeight) || 0,
+  });
+  roll.status = 'issued';
+  await roll.save();
+  await writeOrderLog(
+    {
+      action: 'issued',
+      orderId: order.id,
+      entityType: 'roll',
+      entityCode: roll.barcode,
+      fromLocation,
+      toLocation: 'floor',
+      remarks: line ? issueRemarks(line, fabric) : '',
+    },
+    user
+  );
+  return movement;
+}
+
+/**
+ * Issue rows for one order, or the latest rows across orders.
+ * @param {{ orderId?: string }} query
+ */
+export async function listFabricIssues(query) {
+  const filter = { kind: 'issue', entityType: 'roll', orderId: { $exists: true, $ne: null } };
+  if (query.orderId) {
+    if (!mongoose.Types.ObjectId.isValid(query.orderId)) return { results: [] };
+    filter.orderId = query.orderId;
+  }
+  const movements = await StockMovement.find(filter)
+    .sort({ createdAt: -1 })
+    .limit(query.orderId ? 200 : 500);
+  const orderIds = [...new Set(movements.map((row) => String(row.orderId || '')).filter(Boolean))];
+  const barcodes = movements.map((row) => row.entityId);
+  const [orders, logs] = await Promise.all([
+    ProductionOrder.find({ _id: { $in: orderIds } }).select('orderNumber lines'),
+    ProductionOrderLog.find({ action: 'issued', entityCode: { $in: barcodes } }).sort({ at: 1 }),
+  ]);
+  const orderMap = new Map(orders.map((order) => [String(order.id), order]));
+  const userByRoll = new Map();
+  logs.forEach((log) => {
+    userByRoll.set(`${String(log.orderId || '')}:${log.entityCode}`, log.userName || '');
+  });
+
+  return {
+    results: movements.map((row) => {
+      const order = orderMap.get(String(row.orderId));
+      const line = (order?.lines || []).find((item) => String(item._id) === String(row.lineId));
+      return {
+        id: String(row.id),
+        orderId: String(row.orderId),
+        orderNumber: order?.orderNumber || '',
+        lineId: row.lineId || '',
+        bomLineId: row.bomLineId || '',
+        fabricCatalogId: row.fabricCatalogId || '',
+        fabricName: row.fabricName || '',
+        barcode: row.entityId,
+        netWeight: Number(row.netWeight) || 0,
+        scaleWeight: Number(row.scaleWeight) || 0,
+        fromLocation: row.fromLocation || '',
+        articleName: line?.articleName || '',
+        factoryCode: line?.factoryCode || '',
+        userName: userByRoll.get(`${String(row.orderId)}:${row.entityId}`) || '',
+        createdAt: row.createdAt,
+      };
+    }),
+  };
+}
+
+/**
+ * Marks one article's fabric issue complete. Reopen is not accepted.
+ * @param {{ status?: string }} body
+ * @param {{ orderId: string, lineId: string }} params
+ * @param {object | null} [user]
+ */
+export async function completeFabricIssue(body, params, user) {
+  if (body.status !== 'completed') throw new ApiError(httpStatus.BAD_REQUEST, 'Only completed is accepted');
+  if (!mongoose.Types.ObjectId.isValid(params.orderId) || !mongoose.Types.ObjectId.isValid(params.lineId)) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'Article not found on this order');
+  }
+  const order = await ProductionOrder.findById(params.orderId);
+  if (!order) throw new ApiError(httpStatus.NOT_FOUND, 'Production order not found');
+  const line = order.lines.id(params.lineId);
+  if (!line) throw new ApiError(httpStatus.NOT_FOUND, 'Article not found on this order');
+  if (line.fabricIssueStatus !== 'completed') {
+    line.fabricIssueStatus = 'completed';
+    await order.save();
+    const article = [line.factoryCode, line.articleName].map((part) => String(part || '').trim()).filter(Boolean).join(' ');
+    await writeOrderLog(
+      {
+        action: 'fabric-issue-complete',
+        orderId: order.id,
+        entityType: 'order',
+        entityCode: article || String(line.id),
+        remarks: article ? `Fabric issue complete for ${article}` : 'Fabric issue complete',
+      },
+      user
+    );
+  }
+  return order.toJSON();
+}

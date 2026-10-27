@@ -133,6 +133,7 @@ router.get('/store/racks/:rackCode/occupancy', ...screens('read', rackRead), fac
 router.get('/store/rack-board', ...screens('read', rackRead), factory.rackBoard);
 router.get('/store/storage-report', ...screens('read', rackRead), factory.storageReport);
 router.get('/store/racks/:rackCode', ...screens('read', rackRead), factory.rollsOnRack);
+router.get('/store/issues', ...screens('read', rackRead), factory.listFabricIssues);
 router.post('/store/issues', ...screens('create', [RACKS, F_ISSUE]), factory.issue);
 router.post(
   '/store/returns',
@@ -164,6 +165,7 @@ router.get(
     { path: ORDERS, action: 'read' },
     ...FLOOR_SCREENS.map((path) => ({ path, action: 'read' })),
     { path: RACKS, action: 'read' },
+    { path: F_ISSUE, action: 'read' },
     { path: PACKING, action: 'read' },
     { path: BOXES, action: 'read' },
     { path: FLOOR_QC, action: 'read' },
@@ -172,7 +174,11 @@ router.get(
   factory.listProductionOrders
 );
 router.get('/production/orders/articles', ...guard(ORDERS, 'read'), factory.listArticleLines);
-router.get('/production/orders/fabric-estimation', ...guard(ORDERS, 'read'), factory.fabricEstimation);
+router.get(
+  '/production/orders/fabric-estimation',
+  ...screens('read', [ORDERS, RACKS, F_ISSUE]),
+  factory.fabricEstimation
+);
 router.get('/production/orders/upcoming', ...guard(ORDERS, 'read'), factory.upcomingFloors);
 router.get(
   '/production/orders/:orderId/logs',
@@ -195,6 +201,17 @@ router.post('/production/orders/:orderId/release', ...guard(ORDERS, 'update'), f
 router.post('/production/orders/:orderId/hold', ...guard(ORDERS, 'update'), factory.holdOrder);
 router.delete('/production/orders/:orderId', ...guard(ORDERS, 'delete'), factory.deleteDraft);
 router.post('/production/orders/:orderId/amend', ...guard(ORDERS, 'update'), factory.amendOrder);
+router.patch(
+  '/production/orders/:orderId/lines/:lineId/fabric-issue-status',
+  auth(),
+  requireAnyCrudPath([
+    { path: RACKS, action: 'update' },
+    { path: F_ISSUE, action: 'update' },
+    { path: RACKS, action: 'create' },
+    { path: F_ISSUE, action: 'create' },
+  ]),
+  factory.completeFabricIssue
+);
 router.post('/production/orders/:orderId/transfer', ...screens('create', FLOOR_SCREENS), factory.transferBundle);
 router.post('/production/completions', ...screens('create', FLOOR_SCREENS), factory.completeStage);
 router.post('/production/bundles/receive', ...screens('create', FLOOR_SCREENS), factory.receiveBundle);

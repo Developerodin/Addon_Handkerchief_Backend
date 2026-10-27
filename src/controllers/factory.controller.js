@@ -16,6 +16,7 @@ import * as invoice from '../services/invoice.service.js';
 import * as reports from '../services/reports.service.js';
 import * as lists from '../services/factoryLists.service.js';
 import * as rackSlots from '../services/factory/rackSlots.service.js';
+import * as fabricIssue from '../services/factory/fabricIssue.service.js';
 
 /** @param {(body: object, params: object) => Promise<unknown>} work */
 const send = (work, status = httpStatus.OK) =>
@@ -122,6 +123,8 @@ export const listVendorReturns = sendQuery(lists.listVendorReturns);
 export const rollsOnRack = sendQuery((_query, params) => lists.rollsOnRack(params.rackCode));
 export const rackBoard = sendQuery((query) => lists.rackBoard(query));
 export const storageReport = sendQuery(() => rackSlots.storageReport());
+export const listFabricIssues = sendQuery((query) => fabricIssue.listFabricIssues(query));
+export const completeFabricIssue = send((body, params, user) => fabricIssue.completeFabricIssue(body, params, user));
 export const listOrderLogs = sendQuery((query) => lists.listOrderLogs(query));
 export const listOrderLogsForOrder = sendQuery((query, params) =>
   lists.listOrderLogs({ ...query, orderId: params.orderId })

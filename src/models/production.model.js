@@ -75,6 +75,7 @@ const orderLineSchema = mongoose.Schema(
     pinId: { type: mongoose.SchemaTypes.ObjectId, default: null },
     scopeId: { type: String, default: '' },
     snapshot: { type: snapshotSchema, default: null },
+    fabricIssueStatus: { type: String, enum: ['open', 'completed'], default: 'open' },
     floors: [floorStepSchema],
     segments: [segmentSchema],
   },
@@ -114,7 +115,11 @@ const productionOrderSchema = mongoose.Schema(
  */
 const shapeLine = (line, fallbackId) => {
   const id = line.id || (line._id != null ? String(line._id) : fallbackId || '');
-  const next = { ...line, id };
+  const next = {
+    ...line,
+    id,
+    fabricIssueStatus: line.fabricIssueStatus === 'completed' ? 'completed' : 'open',
+  };
   delete next._id;
   return next;
 };
@@ -143,10 +148,11 @@ productionOrderSchema.options.toJSON = {
             pinId: null,
             scopeId: '',
             snapshot: null,
+            fabricIssueStatus: 'open',
             segments: ret.segments || [],
             floors: ret.floors || [],
           },
-          id
+          String(ret.id || ret._id || '')
         ),
       ];
     } else {

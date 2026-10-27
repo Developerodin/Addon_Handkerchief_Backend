@@ -175,9 +175,18 @@ const stockMovementSchema = mongoose.Schema(
     fromLocation: { type: String, default: '' },
     toLocation: { type: String, default: '' },
     quantity: { type: Number, default: 1 },
+    orderId: { type: mongoose.SchemaTypes.ObjectId, ref: 'ProductionOrder' },
+    lineId: { type: String, default: '' },
+    bomLineId: { type: String, default: '' },
+    fabricCatalogId: { type: String, default: '' },
+    fabricName: { type: String, default: '' },
+    netWeight: { type: Number, default: 0, min: 0 },
+    scaleWeight: { type: Number, default: 0, min: 0 },
   },
   { timestamps: true }
 );
+
+stockMovementSchema.index({ orderId: 1, createdAt: -1 });
 
 const vendorReturnSchema = mongoose.Schema(
   {
