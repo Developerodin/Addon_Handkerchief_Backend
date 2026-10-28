@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import { toJSON } from './plugins/index.js';
 
-const SIGN_OFF_COLUMNS = ['developer', 'addon'];
+const SIGN_OFF_COLUMNS = ['developer', 'addon', 'developed', 'testedOdin', 'testedAddon', 'implemented'];
 
 const checkpointModuleSchema = new mongoose.Schema(
   {
@@ -31,6 +31,23 @@ const checkpointItemSchema = new mongoose.Schema(
     addonCheckedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     addonCheckedByName: { type: String, trim: true, default: '' },
     addonCheckedAt: { type: Date, default: null },
+    developedChecked: { type: Boolean },
+    developedCheckedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    developedCheckedByName: { type: String, trim: true, default: '' },
+    developedCheckedAt: { type: Date, default: null },
+    testedOdinChecked: { type: Boolean },
+    testedOdinCheckedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    testedOdinCheckedByName: { type: String, trim: true, default: '' },
+    testedOdinCheckedAt: { type: Date, default: null },
+    testedAddonChecked: { type: Boolean },
+    testedAddonCheckedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    testedAddonCheckedByName: { type: String, trim: true, default: '' },
+    testedAddonCheckedAt: { type: Date, default: null },
+    implemented: { type: Boolean },
+    implementedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    implementedByName: { type: String, trim: true, default: '' },
+    implementedAt: { type: Date, default: null },
+    pendencyRemark: { type: String, trim: true, default: '', maxlength: 2000 },
   },
   { timestamps: true }
 );

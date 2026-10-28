@@ -53,9 +53,18 @@ const signOff = {
     itemId: Joi.string().custom(objectId).required(),
   }),
   body: Joi.object().keys({
-    column: Joi.string().valid('developer', 'addon').required(),
+    column: Joi.string().valid('developed', 'testedOdin', 'testedAddon', 'implemented').required(),
     checked: Joi.boolean().required(),
   }),
 };
 
-export { createModule, updateModule, moduleIdParam, createItem, updateItem, itemIdParam, signOff };
+const updateRemark = {
+  params: Joi.object().keys({
+    itemId: Joi.string().custom(objectId).required(),
+  }),
+  body: Joi.object().keys({
+    pendencyRemark: Joi.string().trim().max(2000).allow(''),
+  }),
+};
+
+export { createModule, updateModule, moduleIdParam, createItem, updateItem, itemIdParam, signOff, updateRemark };

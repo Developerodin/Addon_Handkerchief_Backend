@@ -42,6 +42,11 @@ const signOffItem = catchAsync(async (req, res) => {
   res.send(item);
 });
 
+const updateRemark = catchAsync(async (req, res) => {
+  const item = await checkpointService.updateRemark(req.params.itemId, req.body, req.user);
+  res.send(item);
+});
+
 const listItemLogs = catchAsync(async (req, res) => {
   const logs = await checkpointService.listItemLogs(req.params.itemId);
   res.send(logs);
@@ -56,5 +61,6 @@ export {
   updateItem,
   deleteItem,
   signOffItem,
+  updateRemark,
   listItemLogs,
 };

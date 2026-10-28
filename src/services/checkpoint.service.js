@@ -38,20 +38,82 @@ const nextSortOrder = async (Model, filter = {}) => {
 };
 
 /**
- * Checkpoint is complete only when both teams have signed off.
- * @param {{ developerChecked?: boolean, addonChecked?: boolean }} item
+ * A stored boolean that was set on purpose, including an explicit false.
+ * @param {boolean | null | undefined} value
  * @returns {boolean}
  */
-const isItemComplete = (item) => Boolean(item.developerChecked && item.addonChecked);
+const isExplicitBoolean = (value) => value === true || value === false;
+
+/**
+ * Checkbox value. An unset new flag falls back to the old Developer or Addon flag.
+ * @param {object} item
+ * @param {string} key - developed, testedOdin, or testedAddon
+ * @param {string | null} legacyPrefix
+ * @returns {{ checked: boolean, byName: string, at: Date | null }}
+ */
+const checkView = (item, key, legacyPrefix) => {
+  const stored = item[`${key}Checked`];
+  if (isExplicitBoolean(stored)) {
+    return {
+      checked: stored,
+      byName: item[`${key}CheckedByName`] || '',
+      at: item[`${key}CheckedAt`] || null,
+    };
+  }
+  if (legacyPrefix && item[`${legacyPrefix}Checked`] === true) {
+    return {
+      checked: true,
+      byName: item[`${legacyPrefix}CheckedByName`] || '',
+      at: item[`${legacyPrefix}CheckedAt`] || null,
+    };
+  }
+  return { checked: false, byName: '', at: null };
+};
+
+/**
+ * Implemented is Yes, No, or still unset.
+ * @param {boolean | null | undefined} value
+ * @returns {boolean | null}
+ */
+const implementedView = (value) => (isExplicitBoolean(value) ? value : null);
+
+/**
+ * A row is complete when every check is on and Implemented is Yes.
+ * @param {{ developedChecked: boolean, testedOdinChecked: boolean, testedAddonChecked: boolean, implemented: boolean | null }} item
+ * @returns {boolean}
+ */
+const isItemComplete = (item) =>
+  Boolean(item.developedChecked && item.testedOdinChecked && item.testedAddonChecked && item.implemented === true);
 
 /**
  * @param {import('mongoose').Document} item
  * @returns {object}
  */
-const serializeItem = (item) => ({
-  ...item.toJSON(),
-  complete: isItemComplete(item),
-});
+const serializeItem = (item) => {
+  const developed = checkView(item, 'developed', 'developer');
+  const testedOdin = checkView(item, 'testedOdin', null);
+  const testedAddon = checkView(item, 'testedAddon', 'addon');
+  const view = {
+    developedChecked: developed.checked,
+    developedCheckedByName: developed.byName,
+    developedCheckedAt: developed.at,
+    testedOdinChecked: testedOdin.checked,
+    testedOdinCheckedByName: testedOdin.byName,
+    testedOdinCheckedAt: testedOdin.at,
+    testedAddonChecked: testedAddon.checked,
+    testedAddonCheckedByName: testedAddon.byName,
+    testedAddonCheckedAt: testedAddon.at,
+    implemented: implementedView(item.implemented),
+    implementedByName: item.implementedByName || '',
+    implementedAt: item.implementedAt || null,
+    pendencyRemark: item.pendencyRemark || '',
+  };
+  return {
+    ...item.toJSON(),
+    ...view,
+    complete: isItemComplete(view),
+  };
+};
 
 /**
  * Reject structure edits from anyone other than superadmin@addon.in.
@@ -201,30 +263,37 @@ const deleteItem = async (itemId, user) => {
   await item.deleteOne();
 };
 
+const COLUMN_KEYS = {
+  developed: { value: 'developedChecked', by: 'developedCheckedBy', name: 'developedCheckedByName', at: 'developedCheckedAt' },
+  testedOdin: { value: 'testedOdinChecked', by: 'testedOdinCheckedBy', name: 'testedOdinCheckedByName', at: 'testedOdinCheckedAt' },
+  testedAddon: { value: 'testedAddonChecked', by: 'testedAddonCheckedBy', name: 'testedAddonCheckedByName', at: 'testedAddonCheckedAt' },
+  implemented: { value: 'implemented', by: 'implementedBy', name: 'implementedByName', at: 'implementedAt' },
+};
+
 /**
- * Apply one side of a sign-off and append a log. Same value is a no-op.
+ * Apply one spreadsheet column and append a log. The same value is a no-op.
  * @param {import('mongoose').Document} item
- * @param {'developer' | 'addon'} column
+ * @param {'developed' | 'testedOdin' | 'testedAddon' | 'implemented'} column
  * @param {boolean} checked
  * @param {{ _id: string, id?: string, name?: string, email?: string }} user
  * @returns {Promise<void>}
  */
 const applySignOff = async (item, column, checked, user) => {
-  const prefix = column === 'developer' ? 'developer' : 'addon';
-  const checkedKey = `${prefix}Checked`;
-  if (Boolean(item[checkedKey]) === checked) return;
+  const keys = COLUMN_KEYS[column];
+  const current = item[keys.value];
+  if (isExplicitBoolean(current) && current === checked) return;
 
   const previous = {
-    checked: item[checkedKey],
-    by: item[`${prefix}CheckedBy`],
-    name: item[`${prefix}CheckedByName`],
-    at: item[`${prefix}CheckedAt`],
+    checked: current,
+    by: item[keys.by],
+    name: item[keys.name],
+    at: item[keys.at],
   };
 
-  item[checkedKey] = checked;
-  item[`${prefix}CheckedBy`] = checked ? user._id || user.id : null;
-  item[`${prefix}CheckedByName`] = checked ? actorName(user) : '';
-  item[`${prefix}CheckedAt`] = checked ? new Date() : null;
+  item[keys.value] = checked;
+  item[keys.by] = user._id || user.id;
+  item[keys.name] = actorName(user);
+  item[keys.at] = new Date();
   await item.save();
 
   try {
@@ -238,10 +307,10 @@ const applySignOff = async (item, column, checked, user) => {
       actedAt: new Date(),
     });
   } catch (error) {
-    item[checkedKey] = previous.checked;
-    item[`${prefix}CheckedBy`] = previous.by;
-    item[`${prefix}CheckedByName`] = previous.name;
-    item[`${prefix}CheckedAt`] = previous.at;
+    item[keys.value] = previous.checked;
+    item[keys.by] = previous.by;
+    item[keys.name] = previous.name;
+    item[keys.at] = previous.at;
     try {
       await item.save();
     } catch (revertError) {
@@ -253,9 +322,9 @@ const applySignOff = async (item, column, checked, user) => {
 };
 
 /**
- * Flip Developer or Addon sign-off. Any signed-in user can change either switch.
+ * Sets one spreadsheet column. Any signed-in user can change any column.
  * @param {string} itemId
- * @param {{ column: 'developer' | 'addon', checked: boolean }} body
+ * @param {{ column: 'developed' | 'testedOdin' | 'testedAddon' | 'implemented', checked: boolean }} body
  * @param {{ _id: string, id?: string, role?: string, email?: string, name?: string }} user
  * @returns {Promise<object>}
  */
@@ -263,8 +332,28 @@ const signOffItem = async (itemId, body, user) => {
   if (!canSignOff(user)) {
     throw new ApiError(httpStatus.FORBIDDEN, 'Sign in to change a sign-off');
   }
+  if (!COLUMN_KEYS[body.column]) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Unknown checkpoint column');
+  }
   const item = await getItemOrThrow(itemId);
   await applySignOff(item, body.column, body.checked, user);
+  return serializeItem(item);
+};
+
+/**
+ * Saves the pendency remark. Any signed-in user can edit it.
+ * @param {string} itemId
+ * @param {{ pendencyRemark?: string }} body
+ * @param {{ email?: string, _id?: string, id?: string }} user
+ * @returns {Promise<object>}
+ */
+const updateRemark = async (itemId, body, user) => {
+  if (!canSignOff(user)) {
+    throw new ApiError(httpStatus.FORBIDDEN, 'Sign in to change a sign-off');
+  }
+  const item = await getItemOrThrow(itemId);
+  item.pendencyRemark = (body.pendencyRemark || '').trim();
+  await item.save();
   return serializeItem(item);
 };
 
@@ -288,5 +377,6 @@ export {
   updateItem,
   deleteItem,
   signOffItem,
+  updateRemark,
   listItemLogs,
 };

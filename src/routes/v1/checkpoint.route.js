@@ -34,6 +34,13 @@ router.patch(
   checkpointController.signOffItem
 );
 
+router.patch(
+  '/items/:itemId/remark',
+  auth(),
+  validate(checkpointValidation.updateRemark),
+  checkpointController.updateRemark
+);
+
 router.get(
   '/items/:itemId/logs',
   auth(),
