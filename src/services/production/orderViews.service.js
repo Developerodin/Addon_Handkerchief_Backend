@@ -1,7 +1,7 @@
 import Product from '../../models/product.model.js';
 import { ProductionOrder } from '../../models/production.model.js';
 import { pageOf } from '../factoryLists.service.js';
-import { buildSnapshot, fabricAvailability, fabricLinesFromProduct, linesForRevision } from './orderSnapshot.js';
+import { buildSnapshot, fabricAvailability, fabricLinesFromProduct, linesForRevision, realFabricBom } from './orderSnapshot.js';
 
 /**
  * Counts for the four tiles. Amended orders sit with in progress.
@@ -92,7 +92,7 @@ export const fabricEstimation = async (query) => {
         }
       }
       if (!snapshot) snapshot = { fabricBom: [] };
-      const fabric = await fabricAvailability(snapshot.fabricBom);
+      const fabric = await fabricAvailability(realFabricBom(snapshot.fabricBom));
       const fabrics = fabric.map((row) => {
         const requiredMetres = Math.round((row.metresPerPiece || 0) * (line.quantity || 0) * 1000) / 1000;
         return {

@@ -5,7 +5,7 @@ import { FabricLot, FabricRoll, StockMovement } from '../../models/store.model.j
 import { ProductionOrder, ProductionOrderLog } from '../../models/production.model.js';
 import Product from '../../models/product.model.js';
 import { writeOrderLog } from '../orderLog.service.js';
-import { buildSnapshot, fabricLinesFromProduct, linesForRevision } from '../production/orderSnapshot.js';
+import { buildSnapshot, fabricLinesFromProduct, linesForRevision, realFabricBom } from '../production/orderSnapshot.js';
 
 const OFF_RACK = new Set(['', 'floor', 'vendor', 'dispatched']);
 const ISSUED = new Set(['issued', 'on-floor']);
@@ -26,16 +26,16 @@ async function rackLocation(barcode) {
  * @param {object} line
  */
 async function fabricBomForLine(order, line) {
-  if (line.pinId && line.snapshot) return line.snapshot.fabricBom || [];
-  if (line.snapshot?.fabricBom?.length) return line.snapshot.fabricBom;
+  if (line.pinId && line.snapshot) return realFabricBom(line.snapshot.fabricBom);
+  if (line.snapshot?.fabricBom?.length) return realFabricBom(line.snapshot.fabricBom);
   const productId = line.itemId?._id || line.itemId;
-  if (!productId) return line.snapshot?.fabricBom || [];
+  if (!productId) return realFabricBom(line.snapshot?.fabricBom);
   const product = await Product.findById(productId);
-  if (!product) return line.snapshot?.fabricBom || [];
+  if (!product) return realFabricBom(line.snapshot?.fabricBom);
   try {
     const version = await linesForRevision(product, line.revisionId || order.revisionId);
     const fromRevision = buildSnapshot(version.lines, product).fabricBom || [];
-    return fromRevision.length ? fromRevision : fabricLinesFromProduct(product);
+    return realFabricBom(fromRevision.length ? fromRevision : fabricLinesFromProduct(product));
   } catch (error) {
     if (error instanceof ApiError) throw error;
     const message = error instanceof Error ? error.message : 'Could not read the article fabric';
@@ -265,7 +265,7 @@ function requiredMetres(order) {
   let total = 0;
   for (const line of order.lines || []) {
     const qty = Number(line.quantity) || 0;
-    for (const fabric of line.snapshot?.fabricBom || []) {
+    for (const fabric of realFabricBom(line.snapshot?.fabricBom)) {
       const pinned = Number(fabric.requiredMetres);
       total += pinned > 0 ? pinned : Math.round((Number(fabric.metresPerPiece) || 0) * qty * 1000) / 1000;
     }
@@ -333,6 +333,10 @@ export async function attachFabricIssue(docs) {
   const results = [];
   for (const doc of docs) {
     const json = doc.toJSON();
+    for (const line of json.lines || []) {
+      if (!line.snapshot?.fabricBom) continue;
+      line.snapshot.fabricBom = realFabricBom(line.snapshot.fabricBom);
+    }
     const pinned = requiredMetres(json);
     const metres = pinned > 0 ? pinned : await liveMetres(doc);
     const hit = byId.get(String(json.id)) || { rolls: 0, weightKg: 0 };

@@ -56,24 +56,28 @@ function normalizeLot(po, lot, index, approved, previous) {
   const label = `Lot ${index + 1}`;
   const lotNumber = String(lot.lotNumber || '').trim();
   if (!lotNumber) throw new ApiError(httpStatus.BAD_REQUEST, `${label}: lot number is required`);
-  if (!(Number(lot.rolls) > 0)) throw new ApiError(httpStatus.BAD_REQUEST, `${label}: rolls must be greater than 0`);
   if (!(Number(lot.grossWeight) > 0)) throw new ApiError(httpStatus.BAD_REQUEST, `${label}: gross weight must be greater than 0`);
   if (!(Number(lot.netWeight) > 0)) throw new ApiError(httpStatus.BAD_REQUEST, `${label}: net weight must be greater than 0`);
+  const seen = new Set();
   const lines = (lot.lines || []).map((line) => {
     const poLine = po.lines.find((row) => row.lineId === line.lineId);
     if (!poLine) throw new ApiError(httpStatus.BAD_REQUEST, `${label}: select a PO line`);
+    if (seen.has(poLine.lineId)) throw new ApiError(httpStatus.BAD_REQUEST, `${label}: each PO item can only be selected once`);
+    seen.add(poLine.lineId);
     const key = String(poLine.fabricId || poLine.lineId);
     if (!approved.has(key)) throw new ApiError(httpStatus.BAD_REQUEST, `${label}: cutoff is not approved`);
     if (!(Number(line.receivedQuantity) > 0)) {
-      throw new ApiError(httpStatus.BAD_REQUEST, `${label}: received quantity must be greater than 0`);
+      throw new ApiError(httpStatus.BAD_REQUEST, `${label}: received metres must be greater than 0`);
     }
-    return { lineId: poLine.lineId, receivedQuantity: Number(line.receivedQuantity) };
+    if (!(Number(line.rolls) > 0)) throw new ApiError(httpStatus.BAD_REQUEST, `${label}: received rolls must be greater than 0`);
+    return { lineId: poLine.lineId, receivedQuantity: Number(line.receivedQuantity), rolls: Number(line.rolls) };
   });
   if (!lines.length) throw new ApiError(httpStatus.BAD_REQUEST, `${label}: select at least one PO line`);
+  const rolls = lines.reduce((sum, line) => sum + line.rolls, 0);
   const prior = previous.get(lotNumber);
   return {
     lotNumber,
-    rolls: Number(lot.rolls),
+    rolls,
     grossWeight: Number(lot.grossWeight),
     netWeight: Number(lot.netWeight),
     lines,

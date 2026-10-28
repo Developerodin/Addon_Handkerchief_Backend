@@ -23,6 +23,7 @@ import versioningRoute from './versioning.route.js';
 import factoryRoute from './factory.route.js';
 import commonRoute from './common.route.js';
 import helpSupportRoute from './helpSupport/index.js';
+import checkpointRoute from './checkpoint.route.js';
 import config from '../../config/config.js';
 
 const router = express.Router();
@@ -115,6 +116,10 @@ const defaultRoutes = [
   {
     path: '/versioning',
     route: versioningRoute,
+  },
+  {
+    path: '/checkpoints',
+    route: checkpointRoute,
   },
   {
     path: '/',

@@ -58,6 +58,7 @@ const purchaseOrderSchema = mongoose.Schema(
           {
             lineId: { type: String, required: true },
             receivedQuantity: { type: Number, required: true, min: 0 },
+            rolls: { type: Number, default: 0, min: 0 },
           },
         ],
         qcStatus: { type: String, enum: ['pending', 'passed', 'held', 'rejected'], default: 'pending' },

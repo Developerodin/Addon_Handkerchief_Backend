@@ -25,19 +25,48 @@ export const scopeIdFor = (product) => {
 };
 
 /**
+ * A real fabric has a catalog id or a name. Packing rows stored as fabric have neither.
+ * @param {object[]} rows
+ * @returns {object[]}
+ */
+export const realFabricBom = (rows) =>
+  (rows || []).filter((row) => String(row?.fabricCatalogId || '').trim() || String(row?.fabricName || '').trim());
+
+/**
+ * Packing and thread lines published with a stable bomLineId are not prefixed `pack:`.
+ * The role on the line is what marks them.
+ * @param {object} line
+ * @returns {boolean}
+ */
+const isMaterialLine = (line) =>
+  Boolean(line?.values?.materialRole) || String(line?.lineId || '').startsWith('pack:');
+
+/**
+ * Catalog id stored on the version line, or the middle segment of `pack:<id>:<role>`.
+ * @param {object} line
+ * @returns {string}
+ */
+const packingRawMaterialId = (line) => {
+  const fromValues = String(line?.values?.rawMaterialId || '').trim();
+  if (fromValues) return fromValues;
+  const parts = String(line?.lineId || '').split(':');
+  return parts[0] === 'pack' ? parts[1] || '' : '';
+};
+
+/**
  * Fabric rows on the item itself. Used when a revision has no fabric lines.
  * @param {object} product
  */
 export const fabricLinesFromProduct = (product) =>
-  (product?.bom || [])
-    .map((row) => ({
+  realFabricBom(
+    (product?.bom || []).map((row) => ({
       bomLineId: String(row.bomLineId || row._id || ''),
       fabricCatalogId: String(row.fabricCatalogId?._id || row.fabricCatalogId?.id || row.fabricCatalogId || ''),
       fabricName: row.fabricName || row.fabricCatalogId?.name || '',
       metresPerPiece: Number(row.quantity) || 0,
       unitCost: Number(row.unitCost) || 0,
     }))
-    .filter((row) => row.bomLineId || row.fabricName);
+  );
 
 /**
  * Freezes fabric, thread, packing, pieces per cut, and rates from a revision.
@@ -47,25 +76,25 @@ export const fabricLinesFromProduct = (product) =>
 export const buildSnapshot = (versionLines, product) => {
   const definition = versionLines.find((line) => line.lineId === 'definition');
   const productBom = new Map((product.bom || []).map((row) => [String(row.bomLineId || ''), row]));
-  const fabricBom = [];
+  const fabricRows = [];
   const threadLines = [];
   const packingLines = [];
   for (const line of versionLines) {
     if (line.lineId === 'definition') continue;
-    if (String(line.lineId).startsWith('pack:')) {
+    if (isMaterialLine(line)) {
       const role = line.values?.materialRole || 'packing';
       const row = {
         lineId: line.lineId,
         materialRole: role,
         quantity: Number(line.quantity) || 0,
-        rawMaterialId: String(line.lineId).split(':')[1] || '',
+        rawMaterialId: packingRawMaterialId(line),
       };
       if (role === 'sewing-thread' || role === 'embroidery-thread') threadLines.push(row);
       else packingLines.push(row);
       continue;
     }
     const source = productBom.get(String(line.lineId));
-    fabricBom.push({
+    fabricRows.push({
       bomLineId: String(line.lineId),
       fabricCatalogId: source?.fabricCatalogId ? String(source.fabricCatalogId._id || source.fabricCatalogId) : '',
       fabricName: line.values?.fabricName || source?.fabricName || '',
@@ -73,6 +102,7 @@ export const buildSnapshot = (versionLines, product) => {
       unitCost: Number(line.values?.unitCost) || Number(source?.unitCost) || 0,
     });
   }
+  const fabricBom = realFabricBom(fabricRows);
   const pieces = Number(definition?.values?.piecesPerCut) === 4 ? 4 : 3;
   return {
     fabricBom,

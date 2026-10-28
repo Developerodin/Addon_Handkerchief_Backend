@@ -16,6 +16,7 @@ import StorageRack from '../models/storageRack.model.js';
 import { stampFloorOntoCodes } from './factory/rackSlots.service.js';
 import { buildRollTrack } from './factory/rollTrack.service.js';
 import { attachFabricIssue } from './factory/fabricIssue.service.js';
+import { realFabricBom } from './production/orderSnapshot.js';
 
 const OFF_RACK = new Set(['', 'floor', 'vendor', 'dispatched']);
 
@@ -473,11 +474,16 @@ export const getProductionOrder = async (orderId) => {
   await ensureOrderNumbers(ProductionOrder);
   const order = await ProductionOrder.findById(orderId);
   if (!order) throw new ApiError(httpStatus.NOT_FOUND, 'Production order not found');
+  const json = order.toJSON();
+  for (const line of json.lines || []) {
+    if (!line.snapshot?.fabricBom) continue;
+    line.snapshot.fabricBom = realFabricBom(line.snapshot.fabricBom);
+  }
   const [completions, bundles] = await Promise.all([
     FloorCompletion.find({ orderId: order.id }),
     PieceBundle.find({ orderId: order.id }),
   ]);
-  return { order, completions, bundles };
+  return { order: json, completions, bundles };
 };
 
 /** @param {object} query */
