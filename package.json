@@ -29,6 +29,7 @@
     "seed:catalog": "node scripts/seedCatalogSample.js",
     "seed:fabric": "node scripts/seedFabricMasters.js",
     "seed:fabric-checkpoints": "node scripts/seedFabricCheckpoints.js",
+    "seed:catalog-checkpoints": "node scripts/seedCatalogCheckpoints.js",
     "fix:fabric-names": "node scripts/fix-fabric-catalog-names.js"
   },
   "keywords": [
