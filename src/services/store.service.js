@@ -16,6 +16,8 @@ import { placeRoll } from './factory/rackSlots.service.js';
 import { enqueueEvent } from './sync/sync.service.js';
 import { assertReceiptCutoffs, cutoffKey } from './factory/cutoffGate.js';
 import { issueFabricRoll } from './factory/fabricIssue.service.js';
+import { issueWholeBalance } from './factory/rollBalance.js';
+import { returnFabricRoll } from './factory/fabricReturn.service.js';
 
 const OFF_RACK = new Set(['', 'floor', 'vendor', 'dispatched']);
 
@@ -354,17 +356,7 @@ export const issueRolls = async (body, user) => {
     }
     const fromLocation = await rackLocation(barcode);
     if (!fromLocation) throw new ApiError(httpStatus.BAD_REQUEST, 'Roll is not on a rack');
-    const movement = await StockMovement.create({
-      eventId,
-      entityType: 'roll',
-      entityId: barcode,
-      kind: 'issue',
-      fromLocation,
-      toLocation: 'floor',
-      quantity: 1,
-    });
-    roll.status = 'issued';
-    await roll.save();
+    const movement = await issueWholeBalance(roll, { eventId, fromLocation, toLocation: 'floor' }, user);
     await writeOrderLog(
       {
         action: 'issued',
@@ -427,35 +419,9 @@ export const vendorReturn = async (body, _params, user) => {
 };
 
 /**
- * Puts a returned roll back on a basement rack.
- * @param {{ rollBarcode: string, rackCode: string, orderId?: string }} body
+ * Puts an issued roll back on a rack for one production article.
+ * @param {object} body
  * @param {object} [_params]
  * @param {object | null} [user]
  */
-export const receiveRollBack = async (body, _params, user) => {
-  const roll = await FabricRoll.findOne({ barcode: body.rollBarcode });
-  if (!roll) throw new ApiError(httpStatus.NOT_FOUND, 'Roll not found');
-  const fromLocation = await rackLocation(roll.barcode);
-  roll.status = 'stored';
-  await roll.save();
-  const movement = await StockMovement.create({
-    entityType: 'roll',
-    entityId: roll.barcode,
-    kind: 'return-to-rack',
-    fromLocation,
-    toLocation: body.rackCode,
-    quantity: 1,
-  });
-  await writeOrderLog(
-    {
-      action: 'returned',
-      orderId: body.orderId,
-      entityType: 'roll',
-      entityCode: roll.barcode,
-      fromLocation,
-      toLocation: body.rackCode,
-    },
-    user
-  );
-  return movement;
-};
+export const receiveRollBack = (body, _params, user) => returnFabricRoll(body, user);

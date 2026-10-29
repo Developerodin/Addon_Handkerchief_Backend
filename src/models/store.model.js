@@ -154,6 +154,10 @@ const fabricRollSchema = mongoose.Schema(
     rollCode: { type: String, default: '' },
     grossWeight: { type: Number, default: 0, min: 0 },
     netWeight: { type: Number, default: 0, min: 0 },
+    qtyMeters: { type: Number, min: 0 },
+    currentGrossWeight: { type: Number, min: 0 },
+    currentNetWeight: { type: Number, min: 0 },
+    currentQtyMeters: { type: Number, min: 0 },
     scaleWeight: { type: Number, required: true },
     condition: { type: String, default: 'good' },
     rate: { type: Number, default: 0 },
@@ -183,7 +187,11 @@ const stockMovementSchema = mongoose.Schema(
     fabricCatalogId: { type: String, default: '' },
     fabricName: { type: String, default: '' },
     netWeight: { type: Number, default: 0, min: 0 },
+    grossWeight: { type: Number, min: 0 },
+    qtyMeters: { type: Number, min: 0 },
     scaleWeight: { type: Number, default: 0, min: 0 },
+    userId: { type: String, default: '' },
+    userName: { type: String, default: '' },
   },
   { timestamps: true }
 );

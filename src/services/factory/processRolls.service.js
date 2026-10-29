@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import httpStatus from 'http-status';
 import ApiError from '../../utils/ApiError.js';
 import { FabricLot, FabricRoll, GoodsReceipt, PurchaseOrder } from '../../models/store.model.js';
+import { rollWasIssued, round3 } from './rollBalance.js';
 
 /**
  * Rolls to mint for one PO item.
@@ -127,6 +128,10 @@ export async function ensureProcessRolls(poId, user) {
           scaleWeight: 0,
           grossWeight: 0,
           netWeight: 0,
+          qtyMeters: 0,
+          currentGrossWeight: 0,
+          currentNetWeight: 0,
+          currentQtyMeters: 0,
           rate: line.rate || 0,
           gstPercent: line.gstPercent || 0,
         });
@@ -139,9 +144,9 @@ export async function ensureProcessRolls(poId, user) {
 }
 
 /**
- * Stores the weighed gross and net for one process roll. Net is the stock weight.
+ * Stores received gross, net, and meters. Current starts as a copy until the roll is issued.
  * @param {string} rollId
- * @param {{ grossWeight?: number, netWeight?: number }} body
+ * @param {{ grossWeight?: number, netWeight?: number, qtyMeters?: number }} body
  */
 export async function updateProcessRoll(rollId, body) {
   const roll = await FabricRoll.findById(rollId);
@@ -149,11 +154,29 @@ export async function updateProcessRoll(rollId, body) {
   if (roll.status === 'returned-to-vendor') {
     throw new ApiError(httpStatus.BAD_REQUEST, 'This roll was returned and is view only');
   }
-  if (body.grossWeight != null) roll.grossWeight = Number(body.grossWeight) || 0;
+  const locked = (await rollWasIssued(roll.barcode)) || roll.status === 'issued' || roll.status === 'on-floor';
+  const touchesReceived = body.grossWeight != null || body.netWeight != null || body.qtyMeters != null;
+  if (locked && touchesReceived) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Received weight is locked after this roll is issued');
+  }
+  if (!locked && touchesReceived) applyReceived(roll, body);
+  await roll.save();
+  return { ...roll.toJSON(), receivedLocked: locked };
+}
+
+/**
+ * Copies the typed receipt onto the roll and onto the current balance.
+ * @param {import('mongoose').Document} roll
+ * @param {{ grossWeight?: number, netWeight?: number, qtyMeters?: number }} body
+ */
+function applyReceived(roll, body) {
+  if (body.grossWeight != null) roll.grossWeight = round3(body.grossWeight);
   if (body.netWeight != null) {
-    roll.netWeight = Number(body.netWeight) || 0;
+    roll.netWeight = round3(body.netWeight);
     roll.scaleWeight = roll.netWeight;
   }
-  await roll.save();
-  return roll;
+  if (body.qtyMeters != null) roll.qtyMeters = round3(body.qtyMeters);
+  roll.currentGrossWeight = Number(roll.grossWeight) || 0;
+  roll.currentNetWeight = Number(roll.netWeight) || 0;
+  roll.currentQtyMeters = Number(roll.qtyMeters) || 0;
 }

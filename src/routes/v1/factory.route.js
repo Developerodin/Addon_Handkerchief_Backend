@@ -129,11 +129,13 @@ router.post('/store/vendor-returns', ...screens('create', [RECEIPT, F_VENDOR]), 
 router.post('/store/racks', ...screens('create', [RACKS, F_STORAGE]), factory.rackRoll);
 router.post('/store/racks/unallocate', ...screens('create', [RACKS, F_STORAGE]), factory.unallocateRoll);
 router.post('/store/rack-slots', ...screens('create', [RACKS, F_STORAGE]), factory.addStorageRacks);
+router.delete('/store/racks/:rackCode', ...screens('delete', [RACKS, F_STORAGE]), factory.deleteStorageRack);
 router.get('/store/racks/:rackCode/occupancy', ...screens('read', rackRead), factory.occupancy);
 router.get('/store/rack-board', ...screens('read', rackRead), factory.rackBoard);
 router.get('/store/storage-report', ...screens('read', rackRead), factory.storageReport);
 router.get('/store/racks/:rackCode', ...screens('read', rackRead), factory.rollsOnRack);
 router.get('/store/issues', ...screens('read', rackRead), factory.listFabricIssues);
+router.get('/store/returns', ...screens('read', rackRead), factory.listFabricReturns);
 router.post('/store/issues', ...screens('create', [RACKS, F_ISSUE]), factory.issue);
 router.post(
   '/store/returns',

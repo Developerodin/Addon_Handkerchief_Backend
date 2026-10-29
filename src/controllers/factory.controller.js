@@ -15,8 +15,10 @@ import * as warehouse from '../services/warehouse.service.js';
 import * as invoice from '../services/invoice.service.js';
 import * as reports from '../services/reports.service.js';
 import * as lists from '../services/factoryLists.service.js';
+import { listRolls as queryRolls } from '../services/factory/rollQuery.service.js';
 import * as rackSlots from '../services/factory/rackSlots.service.js';
 import * as fabricIssue from '../services/factory/fabricIssue.service.js';
+import * as fabricReturn from '../services/factory/fabricReturn.service.js';
 
 /** @param {(body: object, params: object) => Promise<unknown>} work */
 const send = (work, status = httpStatus.OK) =>
@@ -43,6 +45,7 @@ export const updateProcessRoll = send((body, params) => processRolls.updateProce
 export const receive = send(store.receiveLot, httpStatus.CREATED);
 export const rackRoll = send(store.rackRoll, httpStatus.CREATED);
 export const addStorageRacks = send(rackSlots.addStorageRacks, httpStatus.CREATED);
+export const deleteStorageRack = send(rackSlots.deleteStorageRack);
 export const unallocateRoll = send(rackSlots.unallocateRoll);
 export const occupancy = send((_body, params) => store.rackOccupancy(params.rackCode));
 export const issue = send(
@@ -116,7 +119,7 @@ export const listReceipts = sendQuery(lists.listReceipts);
 export const getReceipt = sendQuery((_query, params) => grn.getReceipt(params.id));
 export const updateReceipt = send((body, params) => grn.updateReceipt(params.id, body));
 export const receiptSummary = sendQuery((query) => grn.receiptSummary(query));
-export const listRolls = sendQuery(lists.listRolls);
+export const listRolls = sendQuery(queryRolls);
 export const trackRoll = sendQuery((_query, params) => lists.trackRoll(params.code));
 export const listReturnQueue = sendQuery(() => lists.listReturnQueue());
 export const listVendorReturns = sendQuery(lists.listVendorReturns);
@@ -124,6 +127,7 @@ export const rollsOnRack = sendQuery((_query, params) => lists.rollsOnRack(param
 export const rackBoard = sendQuery((query) => lists.rackBoard(query));
 export const storageReport = sendQuery(() => rackSlots.storageReport());
 export const listFabricIssues = sendQuery((query) => fabricIssue.listFabricIssues(query));
+export const listFabricReturns = sendQuery((query) => fabricReturn.listFabricReturns(query));
 export const completeFabricIssue = send((body, params, user) => fabricIssue.completeFabricIssue(body, params, user));
 export const listOrderLogs = sendQuery((query) => lists.listOrderLogs(query));
 export const listOrderLogsForOrder = sendQuery((query, params) =>
