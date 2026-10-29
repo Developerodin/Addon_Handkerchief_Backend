@@ -49,6 +49,11 @@ const FEATURES = [
   ['All PO', 'List and filters', 'Search and filter current purchase orders at /store/purchase-orders.'],
   ['All PO', 'Submit to supplier', 'Submit a draft so the supplier can see the PO.'],
   ['All PO', 'Mark in transit', 'Mark a submitted, partial, or in-transit PO as in transit.'],
+  [
+    'All PO',
+    'AI packlist parse',
+    'On mark in transit, upload a packlist PDF or document. The parser reads it and fills packing, courier, vehicle, challan, dates, rolls, weight, notes, and the PO lines. The user confirms the rows, then the packlist is saved against that purchase order.',
+  ],
   ['All PO', 'Cutoff approval', 'Approve or reject the fabric cutoff on a PO.'],
   ['All PO', 'Open lot', 'Open a lot from the fabric lines of a submitted PO.'],
   ['All PO', 'Print', 'Print the purchase order note.'],
@@ -197,6 +202,29 @@ const removeLegacy = async (moduleDoc) => {
 };
 
 /**
+ * Sort order that sits the new row directly under the previous feature.
+ * Rows already below that neighbor move down by one. Missing neighbor appends at the end.
+ * @param {import('mongoose').Document} moduleDoc
+ * @param {number} featureIndex
+ * @returns {Promise<number>}
+ */
+const sortOrderAfterNeighbor = async (moduleDoc, featureIndex) => {
+  const previous = featureIndex > 0 ? CHECKPOINTS[featureIndex - 1] : null;
+  if (previous) {
+    const neighbor = await CheckpointItem.findOne({ moduleId: moduleDoc._id, title: previous.title }).select('sortOrder').lean();
+    if (neighbor) {
+      await CheckpointItem.updateMany(
+        { moduleId: moduleDoc._id, sortOrder: { $gt: neighbor.sortOrder } },
+        { $inc: { sortOrder: 1 } }
+      );
+      return neighbor.sortOrder + 1;
+    }
+  }
+  const last = await CheckpointItem.findOne({ moduleId: moduleDoc._id }).sort({ sortOrder: -1 }).select('sortOrder').lean();
+  return (last?.sortOrder ?? 0) + 1;
+};
+
+/**
  * Inserts missing feature rows. Existing titles keep their checks.
  * @param {import('mongoose').Document} moduleDoc
  * @returns {Promise<{ created: string[], skipped: string[] }>}
@@ -204,16 +232,15 @@ const removeLegacy = async (moduleDoc) => {
 const ensureItems = async (moduleDoc) => {
   const created = [];
   const skipped = [];
-  const last = await CheckpointItem.findOne({ moduleId: moduleDoc._id }).sort({ sortOrder: -1 }).select('sortOrder').lean();
-  let sortOrder = last?.sortOrder ?? 0;
 
-  for (const checkpoint of CHECKPOINTS) {
+  for (let index = 0; index < CHECKPOINTS.length; index += 1) {
+    const checkpoint = CHECKPOINTS[index];
     const existing = await CheckpointItem.findOne({ moduleId: moduleDoc._id, title: checkpoint.title });
     if (existing) {
       skipped.push(checkpoint.title);
       continue;
     }
-    sortOrder += 1;
+    const sortOrder = await sortOrderAfterNeighbor(moduleDoc, index);
     await CheckpointItem.create({
       moduleId: moduleDoc._id,
       title: checkpoint.title,

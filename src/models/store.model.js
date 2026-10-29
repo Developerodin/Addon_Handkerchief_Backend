@@ -11,6 +11,7 @@ const poLineSchema = mongoose.Schema(
     fabricSortNo: { type: String, default: '' },
     millOldFabricSortNo: { type: String, default: '' },
     millNewFabricSortNo: { type: String, default: '' },
+    countName: { type: String, default: '' },
     quantity: { type: Number, required: true, min: 0 },
     unitId: { type: mongoose.SchemaTypes.ObjectId, ref: 'FabricMeasurement' },
     unitName: { type: String, default: '' },
