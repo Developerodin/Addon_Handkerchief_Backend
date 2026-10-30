@@ -40,7 +40,16 @@ const PACKING_FIELDS = [
   'vehicleNumber',
   'challanNumber',
   'notes',
+  'millName',
+  'consigneeName',
+  'customerCity',
+  'invoiceNumber',
+  'invoiceDate',
+  'division',
+  'lrNo',
+  'lrDate',
   'lineIds',
+  'cartons',
   'files',
 ];
 

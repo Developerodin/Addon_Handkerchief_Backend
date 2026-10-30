@@ -3,6 +3,7 @@ import catchAsync from '../utils/catchAsync.js';
 import { applyEvent, pullEvents, syncStatus, enqueueEvent } from '../services/sync/sync.service.js';
 import * as store from '../services/store.service.js';
 import * as packing from '../services/factory/packingList.service.js';
+import * as packingPdf from '../services/factory/packingListPdf.service.js';
 import * as receivedLots from '../services/factory/receivedLots.service.js';
 import * as processRolls from '../services/factory/processRolls.service.js';
 import * as grn from '../services/factory/grn.service.js';
@@ -36,6 +37,14 @@ export const commercials = send((body, params) => store.setDraftCommercials(para
 export const createLot = send((body) => store.createLot(body.poId, body.cutoffs), httpStatus.CREATED);
 export const decideCutoffs = send((body, params) => store.decideCutoffs(params.lotId, body.decisions));
 export const packingList = send(packing.createPackingList, httpStatus.CREATED);
+export const parsePackingListPdf = catchAsync(async (req, res) => {
+  if (!req.file) {
+    res.status(httpStatus.BAD_REQUEST).send({ message: 'Upload a packing list PDF' });
+    return;
+  }
+  const result = await packingPdf.readPackingListPdf(req.file.buffer, req.file.mimetype, req.body?.millName || '');
+  res.status(httpStatus.OK).send(result);
+});
 export const updatePackingList = send((body, params) => packing.updatePackingList(params.listId, body));
 export const saveReceivedLots = send((body, params, user) => receivedLots.saveReceivedLots(params.poId, body, user));
 export const ensureProcessRolls = send((_body, params, user) => processRolls.ensureProcessRolls(params.poId, user));

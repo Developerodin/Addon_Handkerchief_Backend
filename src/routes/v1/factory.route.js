@@ -1,4 +1,5 @@
 import express from 'express';
+import multer from 'multer';
 import auth from '../../middlewares/auth.js';
 import { requireAnyCrudPath, requireCrud } from '../../middlewares/requireCrud.js';
 import * as factory from '../../controllers/factory.controller.js';
@@ -108,6 +109,22 @@ router.get('/store/rolls/track/:code', ...screens('read', rackRead), factory.tra
 router.patch('/store/rolls/:rollId', ...screens('update', [RECEIPT, F_RECEIPTS]), factory.updateProcessRoll);
 router.get('/store/return-queue', ...screens('read', [RECEIPT, F_VENDOR, F_CHALLAN]), factory.listReturnQueue);
 router.get('/store/vendor-returns', ...screens('read', [RECEIPT, F_VENDOR, F_CHALLAN, F_FABRIC_ANALYTICS]), factory.listVendorReturns);
+const packingPdfUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
+
+router.post(
+  '/store/packing-lists/parse',
+  auth(),
+  requireAnyCrudPath([
+    ...poWrite.map((screen) => ({ path: screen, action: 'update' })),
+    { path: RECEIPT, action: 'create' },
+    { path: F_RECEIPTS, action: 'create' },
+  ]),
+  packingPdfUpload.single('file'),
+  factory.parsePackingListPdf
+);
 router.get('/store/packing-lists', ...screens('read', [...poRead, RECEIPT, F_RECEIPTS]), factory.listPackingLists);
 router.post(
   '/store/packing-lists',

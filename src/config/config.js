@@ -27,6 +27,8 @@ const envVarsSchema = Joi.object()
     AWS_SECRET_ACCESS_KEY: Joi.string().allow('').default('').description('AWS secret access key'),
     AWS_REGION: Joi.string().allow('').default('ap-south-1').description('AWS region'),
     AWS_BUCKET_NAME: Joi.string().allow('').default('').description('AWS S3 bucket name'),
+    OPENAI_API_KEY: Joi.string().allow('').default('').description('OpenAI API key for packing-list PDFs'),
+    OPENAI_PDF_MODEL: Joi.string().allow('').default('gpt-5.6-luna').description('OpenAI model that reads packing-list PDFs'),
   })
   .unknown();
 
@@ -89,6 +91,10 @@ const config = {
     s3: {
       bucket: envVars.AWS_BUCKET_NAME,
     },
+  },
+  openai: {
+    apiKey: envVars.OPENAI_API_KEY,
+    pdfModel: envVars.OPENAI_PDF_MODEL || 'gpt-5.6-luna',
   },
 };
 
