@@ -54,9 +54,10 @@ app.use(passport.initialize());
 passport.use('jwt', jwtStrategy);
 app.use(optionalAuth());
 
-// limit repeated failed requests to auth endpoints
+// Failed logins only. Refresh/logout used to share this cap and trip it in a few tries.
 if (config.env === 'production') {
-  app.use('/v1/auth', authLimiter);
+  app.set('trust proxy', 1);
+  app.use('/v1/auth/login', authLimiter);
 }
 
 // v1 api routes
