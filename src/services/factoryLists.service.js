@@ -365,6 +365,35 @@ export const listOrderLogs = (query) => {
 };
 
 /**
+ * Issue queue is work still waiting on fabric. Return queue is orders that already have an issued roll.
+ * @param {object} filter
+ * @param {string} queue
+ */
+async function applyFabricQueue(filter, queue) {
+  if (queue === 'issue') {
+    filter.status = { $in: ['released', 'in-progress', 'amended'] };
+    filter.$and = [
+      ...(filter.$and || []),
+      {
+        $or: [
+          { lines: { $elemMatch: { fabricIssueStatus: { $ne: 'completed' } } } },
+          { lines: { $size: 0 } },
+        ],
+      },
+    ];
+    return;
+  }
+  if (queue !== 'return') return;
+  const issuedIds = await StockMovement.distinct('orderId', {
+    kind: 'issue',
+    entityType: 'roll',
+    orderId: { $ne: null },
+  });
+  filter._id = { $in: issuedIds };
+  filter.status = { $nin: ['pending', 'closed'] };
+}
+
+/**
  * Orders list. Tile counts are for the whole collection, not the current page.
  * @param {object} query
  */
@@ -375,7 +404,9 @@ export const listProductionOrders = async (query) => {
   if (query.revisionId) filter.revisionId = query.revisionId;
   if (query.floor) filter.currentFloor = query.floor;
   else if (query.currentFloor) filter.currentFloor = query.currentFloor;
-  if (query.tile === 'pending') filter.status = { $in: ['pending', 'released'] };
+  if (query.fabricQueue === 'issue' || query.fabricQueue === 'return') {
+    await applyFabricQueue(filter, query.fabricQueue);
+  } else if (query.tile === 'pending') filter.status = { $in: ['pending', 'released'] };
   else if (query.tile === 'in-progress') filter.status = { $in: ['in-progress', 'amended'] };
   else if (query.tile === 'completed') filter.status = 'closed';
   else if (query.tile === 'on-hold') filter.status = 'on-hold';

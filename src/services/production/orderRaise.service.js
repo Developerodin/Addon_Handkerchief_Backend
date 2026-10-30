@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import ApiError from '../../utils/ApiError.js';
 import Product from '../../models/product.model.js';
 import { FloorCompletion, ProductionOrder, ProductionOrderLog } from '../../models/production.model.js';
+import { StockMovement } from '../../models/store.model.js';
 import { writeOrderLog } from '../orderLog.service.js';
 import { snapshotFloors } from '../production.service.js';
 import { createPin } from '../versioning/pin.service.js';
@@ -310,8 +311,11 @@ export const holdOrder = async (orderId, body, user) => {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Only a released order can be put on hold');
   }
   if (body.hold === false) {
-    const done = await FloorCompletion.exists({ orderId: order.id });
-    order.status = done ? 'in-progress' : 'released';
+    const [done, issued] = await Promise.all([
+      FloorCompletion.exists({ orderId: order.id }),
+      StockMovement.exists({ kind: 'issue', entityType: 'roll', orderId: order.id }),
+    ]);
+    order.status = done || issued ? 'in-progress' : 'released';
   } else {
     order.status = 'on-hold';
   }

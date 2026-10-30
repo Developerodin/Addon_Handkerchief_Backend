@@ -1,5 +1,6 @@
 import Product from '../../models/product.model.js';
 import { ProductionOrder } from '../../models/production.model.js';
+import { StockMovement } from '../../models/store.model.js';
 import { pageOf } from '../factoryLists.service.js';
 import { buildSnapshot, fabricAvailability, fabricLinesFromProduct, linesForRevision, realFabricBom } from './orderSnapshot.js';
 
@@ -118,11 +119,22 @@ export const fabricEstimation = async (query) => {
 
 /**
  * Quantity received on a floor and not yet transferred.
+ * A released order stays out of this total until a roll has been issued.
  */
 export const upcomingByFloor = async () => {
   const orders = await ProductionOrder.find({ status: { $in: ['released', 'in-progress', 'amended', 'on-hold'] } }).limit(500);
+  const waitingIds = orders.filter((order) => order.status === 'released').map((order) => order._id);
+  const issuedIds = waitingIds.length
+    ? await StockMovement.distinct('orderId', {
+        kind: 'issue',
+        entityType: 'roll',
+        orderId: { $in: waitingIds },
+      })
+    : [];
+  const issued = new Set(issuedIds.map((id) => String(id)));
   const floors = new Map();
   for (const order of orders) {
+    if (order.status === 'released' && !issued.has(String(order.id))) continue;
     const json = order.toJSON();
     const steps = json.lines.some((line) => (line.floors || []).length)
       ? json.lines.flatMap((line) => line.floors || [])

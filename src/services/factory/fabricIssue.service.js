@@ -123,9 +123,26 @@ export function rollFitsFabric(fabric, roll) {
   throw new ApiError(httpStatus.BAD_REQUEST, mismatchMessage(fabric, roll));
 }
 
+const ISSUE_BLOCKED = {
+  pending: 'Release the order before issuing fabric',
+  closed: 'This order is closed',
+  'on-hold': 'This order is on hold',
+};
+
+/**
+ * The first issued roll starts production. Later rolls leave the status alone.
+ * @param {object} order
+ */
+async function startProductionAfterIssue(order) {
+  if (order.status !== 'released') return;
+  order.status = 'in-progress';
+  await order.save();
+}
+
 /**
  * Issues one scanned roll. With an article line, the roll must match that fabric.
  * Without a line, the older order-only issue still moves the roll to the floor.
+ * A draft, a closed order, and an order on hold cannot take a roll.
  * @param {object} body
  * @param {object | null} [user]
  */
@@ -133,6 +150,7 @@ export async function issueFabricRoll(body, user) {
   if (!body.orderId) throw new ApiError(httpStatus.BAD_REQUEST, 'Production order is required');
   const order = await ProductionOrder.findById(body.orderId);
   if (!order) throw new ApiError(httpStatus.NOT_FOUND, 'Production order not found');
+  if (ISSUE_BLOCKED[order.status]) throw new ApiError(httpStatus.BAD_REQUEST, ISSUE_BLOCKED[order.status]);
 
   let line = null;
   let fabric = null;
@@ -171,7 +189,10 @@ export async function issueFabricRoll(body, user) {
 
   if (body.eventId) {
     const existing = await StockMovement.findOne({ eventId: body.eventId });
-    if (existing) return existing;
+    if (existing) {
+      if (String(existing.orderId || '') === String(order.id)) await startProductionAfterIssue(order);
+      return existing;
+    }
   }
 
   const movement = await issueWholeBalance(
@@ -200,6 +221,7 @@ export async function issueFabricRoll(body, user) {
     },
     user
   );
+  await startProductionAfterIssue(order);
   return movement;
 }
 
