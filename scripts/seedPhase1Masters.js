@@ -26,6 +26,31 @@ const ATTRIBUTES = [
   { name: 'Pack Size', attributeType: 'Warehouse', type: 'select', optionValues: [{ name: '1' }, { name: '3' }, { name: '6' }, { name: '12' }] },
 ];
 
+/**
+ * Creates the Material Code select when it is missing.
+ * Does not change option values on an attribute that already exists.
+ * @returns {Promise<void>}
+ */
+async function ensureMaterialCodeAttribute() {
+  const existing = await ProductAttribute.findOne({
+    name: { $regex: /^Material Code$/i },
+  });
+  if (existing) {
+    console.log(`Material Code attribute already exists id=${existing.id || existing._id}`);
+    return;
+  }
+
+  const created = await ProductAttribute.create({
+    name: 'Material Code',
+    attributeType: 'Manufacturing',
+    type: 'select',
+    required: false,
+    sortOrder: 0,
+    optionValues: [],
+  });
+  console.log(`Created Material Code attribute id=${created.id || created._id}`);
+}
+
 const PROCESSES = [
   { name: 'Cutting', code: 'CUT', type: 'cutting', department: 'cutting', machineType: 'cutting', qcCheckpoint: false, reworkEligible: true, sortOrder: 1 },
   { name: 'Selvage', code: 'SEL', type: 'cutting', department: 'cutting', machineType: 'cutting', sortOrder: 2 },
@@ -41,6 +66,12 @@ const PROCESSES = [
 async function main() {
   await mongoose.connect(config.mongoose.url, config.mongoose.options);
   console.log('Connected');
+
+  if (process.argv.includes('--material-code-only')) {
+    await ensureMaterialCodeAttribute();
+    await mongoose.disconnect();
+    return;
+  }
 
   await Category.deleteMany({ description: new RegExp(SAMPLE_TAG) });
   await ProductAttribute.deleteMany({ name: new RegExp(`^${SAMPLE_TAG}`) });
@@ -110,6 +141,7 @@ async function main() {
     });
   }
 
+  await ensureMaterialCodeAttribute();
   console.log('Phase 1 seeds created');
   await mongoose.disconnect();
 }

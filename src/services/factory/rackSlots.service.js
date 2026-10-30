@@ -128,19 +128,26 @@ function normalizeFloor(value) {
 }
 
 /**
- * True when the floor is already its own dash segment, such as `-B-` or a trailing `-B`.
- * New codes look like ST-B-A01-U001, so appending the floor again would corrupt them.
+ * Floor belongs in the code once.
+ * ST-B-A02-L001 stays ST-B-A02-L001. A second trailing -B is removed.
+ * A code saved without the floor, such as B1-02-R0001, becomes B1-02-R0001-F01.
  * @param {string} code
  * @param {string} floor
+ * @returns {string}
  */
-function codeHasFloorSegment(code, floor) {
-  return String(code).split('-').includes(floor);
+function rackCodeWithFloor(code, floor) {
+  const parts = String(code || '').split('-').filter((part) => part.length > 0);
+  while (parts.length > 1 && parts[parts.length - 1] === floor && parts.indexOf(floor) < parts.length - 1) {
+    parts.pop();
+  }
+  if (floor && !parts.includes(floor)) parts.push(floor);
+  return parts.join('-');
 }
 
 /**
- * Puts the floor on rack codes that were saved without it.
- * B1-02-R0001 with floor F01 becomes B1-02-R0001-F01, and roll locations follow.
- * Codes that already contain the floor as a segment are left alone.
+ * Puts the floor on rack codes that were saved without it, and strips a duplicated trailing floor.
+ * B1-02-R0001 with floor F01 becomes B1-02-R0001-F01. ST-B-A01-U001-B becomes ST-B-A01-U001.
+ * Roll locations follow the renamed code.
  */
 export async function stampFloorOntoCodes() {
   const racks = await StorageRack.find({ floor: { $regex: /\S/ } });
@@ -148,14 +155,17 @@ export async function stampFloorOntoCodes() {
     const floorCode = normalizeFloor(rack.floor);
     if (!/^[A-Z0-9][A-Z0-9-]{0,24}$/.test(floorCode)) continue;
     const current = String(rack.code);
-    if (codeHasFloorSegment(current, floorCode)) {
+    const nextCode = rackCodeWithFloor(current, floorCode);
+    if (nextCode === current) {
       if (rack.floor !== floorCode) await StorageRack.updateOne({ _id: rack._id }, { floor: floorCode });
       continue;
     }
-    const nextCode = `${current}-${floorCode}`;
     const taken = await StorageRack.exists({ code: nextCode });
     if (taken) continue;
-    await StorageRack.updateOne({ _id: rack._id }, { code: nextCode, name: nextCode, barcode: nextCode, floor: floorCode });
+    const patch = { code: nextCode, floor: floorCode };
+    if (!rack.name || rack.name === current) patch.name = nextCode;
+    if (!rack.barcode || rack.barcode === current) patch.barcode = nextCode;
+    await StorageRack.updateOne({ _id: rack._id }, patch);
     await StockMovement.updateMany({ toLocation: current }, { $set: { toLocation: nextCode } });
     await StockMovement.updateMany({ fromLocation: current }, { $set: { fromLocation: nextCode } });
     await ProductionOrderLog.updateMany({ toLocation: current }, { $set: { toLocation: nextCode } });

@@ -6,6 +6,8 @@ export * as productAttributeService from './productAttribute.service.js';
 export * as rawMaterialService from './rawMaterial.service.js';
 export * as fabricSupplierService from './fabricSupplier.service.js';
 export * as fabricCatalogService from './fabricCatalog.service.js';
+export * as threadSupplierService from './threadSupplier.service.js';
+export * as threadCatalogService from './threadCatalog.service.js';
 export * as styleCodeComboService from './styleCodeCombo.service.js';
 
 export * as categoryService from './category.service.js';
