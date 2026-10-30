@@ -19,6 +19,8 @@ import fabricYarnRoute from '../../src/routes/v1/fabricYarn.route.js';
 import fabricCountRoute from '../../src/routes/v1/fabricCount.route.js';
 import fabricMeasurementRoute from '../../src/routes/v1/fabricMeasurement.route.js';
 import fabricCatalogRoute from '../../src/routes/v1/fabricCatalog.route.js';
+import threadCatalogRoute from '../../src/routes/v1/threadCatalog.route.js';
+import threadSupplierRoute from '../../src/routes/v1/threadSupplier.route.js';
 import phase3CatalogRoute from '../../src/routes/v1/phase3Catalog.route.js';
 import { errorConverter, errorHandler } from '../../src/middlewares/error.js';
 
@@ -50,6 +52,8 @@ app.use('/v1/fabric-yarns', fabricYarnRoute);
 app.use('/v1/fabric-counts', fabricCountRoute);
 app.use('/v1/fabric-measurements', fabricMeasurementRoute);
 app.use('/v1/fabric-catalogs', fabricCatalogRoute);
+app.use('/v1/thread-catalogs', threadCatalogRoute);
+app.use('/v1/thread-suppliers', threadSupplierRoute);
 app.use('/v1', phase3CatalogRoute);
 
 app.use(errorConverter);

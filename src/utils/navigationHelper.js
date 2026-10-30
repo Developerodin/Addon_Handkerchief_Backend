@@ -99,6 +99,8 @@ export const CATALOG_MODULES = [
   'Fabric Count',
   'Fabric Measurement',
   'Fabric Suppliers',
+  'Thread Catalog',
+  'Thread Suppliers',
   'Packaging materials',
   'Process Master',
   'Attributes Master',
@@ -179,9 +181,28 @@ export const ROLE_NAVIGATION_TEMPLATES = {
   },
 };
 
+const THREAD_CATALOG_KEYS = ['Thread Catalog', 'Thread Suppliers'];
+
+/**
+ * Missing thread modules stay denied. Role templates must not turn them on.
+ * A saved CRUD object, including an explicit deny, is left as stored.
+ * @param {object} merged
+ * @param {object} stored
+ */
+const denyUnsetThreadModules = (merged, stored) => {
+  const storedCatalog = stored?.Catalog && typeof stored.Catalog === 'object' ? stored.Catalog : {};
+  if (!merged.Catalog || typeof merged.Catalog !== 'object') return;
+  for (const key of THREAD_CATALOG_KEYS) {
+    if (storedCatalog[key] == null) {
+      merged.Catalog[key] = { ...EMPTY_CRUD };
+    }
+  }
+};
+
 /**
  * Role template fills keys the stored user document does not have yet.
  * Stored flags win, so an explicit deny stays denied.
+ * Thread Catalog and Thread Suppliers stay off until those keys are saved.
  * @param {{ role?: string, navigation?: object } | null | undefined} user
  * @returns {object}
  */
@@ -189,6 +210,7 @@ export const effectiveNavigation = (user) => {
   const roleDefaults = getDefaultNavigationByRole(user?.role);
   const stored = user?.navigation || {};
   const merged = mergeNavigation(roleDefaults, stored);
+  denyUnsetThreadModules(merged, stored);
   for (const [next, legacy] of Object.entries(FABRIC_FROM_LEGACY)) {
     if (stored[next] != null || stored[legacy] == null) continue;
     const legacyCrud = normalizeCrud(stored[legacy]);

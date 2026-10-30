@@ -21,6 +21,7 @@ const storageRackSchema = mongoose.Schema(
   {
     code: { type: String, required: true, trim: true, uppercase: true },
     name: { type: String, required: true, trim: true },
+    location: { type: String, trim: true, uppercase: true, default: '' },
     floor: { type: String, trim: true, default: '' },
     zone: { type: String, trim: true, default: '' },
     stockType: {

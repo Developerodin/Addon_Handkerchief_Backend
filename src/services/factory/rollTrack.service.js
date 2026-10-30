@@ -2,6 +2,7 @@ import httpStatus from 'http-status';
 import ApiError from '../../utils/ApiError.js';
 import { FabricRoll, GoodsReceipt, PurchaseOrder, StockMovement } from '../../models/store.model.js';
 import { ProductionOrderLog } from '../../models/production.model.js';
+import { ensureCurrentBalance } from './rollBalance.js';
 
 const OFF_RACK = new Set(['', 'floor', 'vendor', 'dispatched']);
 
@@ -30,6 +31,7 @@ export async function buildRollTrack(code) {
   const scanned = String(code || '').trim();
   const roll = await FabricRoll.findOne({ $or: [{ barcode: scanned }, { rollCode: scanned }] });
   if (!roll) throw new ApiError(httpStatus.NOT_FOUND, 'Roll not found');
+  await ensureCurrentBalance(roll);
 
   const [po, grn, movements, logs] = await Promise.all([
     PurchaseOrder.findById(roll.poId).select('number supplierName receivedLots'),
@@ -63,6 +65,7 @@ export async function buildRollTrack(code) {
     location: location || roll.status || '',
     stored,
     timeline,
+    openIssue: openIssueView(roll, movements),
     movements: movements.map((row) => ({
       id: String(row._id),
       kind: row.kind,
@@ -104,6 +107,7 @@ function buildTimeline(source) {
       'Lot number': roll.receivedLotNumber || '',
       'Gross (kg)': roll.grossWeight ?? '',
       'Net (kg)': roll.netWeight ?? '',
+      Meters: roll.qtyMeters ?? '',
     },
   });
 
@@ -130,6 +134,7 @@ function buildTimeline(source) {
         'Storage location': row.toLocation || '',
         From: row.fromLocation || '',
         'Stored status': onRack ? 'Yes' : 'No',
+        ...balanceDetails(row),
       },
     });
   });
@@ -155,4 +160,35 @@ function buildTimeline(source) {
       details: Object.fromEntries(Object.entries(event.details).filter(([, value]) => value !== '' && value != null)),
     }))
     .sort((left, right) => new Date(right.at || 0).getTime() - new Date(left.at || 0).getTime());
+}
+
+/**
+ * Gross, net, meters, and user stored on an issue or return movement.
+ * @param {object} row
+ */
+function balanceDetails(row) {
+  if (row.kind !== 'issue' && row.kind !== 'return-to-rack') return {};
+  return {
+    'Gross (kg)': row.grossWeight == null ? '' : row.grossWeight,
+    'Net (kg)': row.netWeight == null ? '' : row.netWeight,
+    Meters: row.qtyMeters == null ? '' : row.qtyMeters,
+    User: row.userName || '',
+  };
+}
+
+/**
+ * The issue that is still out, with weights the return screen can show.
+ * @param {object} roll
+ * @param {object[]} movements oldest first
+ */
+function openIssueView(roll, movements) {
+  const row = [...movements].reverse().find((item) => item.kind === 'issue' || item.kind === 'return-to-rack');
+  if (!row || row.kind !== 'issue') return null;
+  const metersKnown = row.qtyMeters != null || Number(roll.qtyMeters) > 0;
+  return {
+    grossWeight: row.grossWeight == null ? Number(roll.grossWeight) || 0 : Number(row.grossWeight),
+    netWeight: Number(row.netWeight) > 0 ? Number(row.netWeight) : Number(roll.netWeight) || 0,
+    qtyMeters: row.qtyMeters == null ? Number(roll.qtyMeters) || 0 : Number(row.qtyMeters),
+    metersKnown,
+  };
 }

@@ -11,6 +11,8 @@ import styleCodeRoute from './styleCode.route.js';
 import styleCodeComboRoute from './styleCodeCombo.route.js';
 import fabricSupplierRoute from './fabricSupplier.route.js';
 import fabricCatalogRoute from './fabricCatalog.route.js';
+import threadSupplierRoute from './threadSupplier.route.js';
+import threadCatalogRoute from './threadCatalog.route.js';
 import fabricTypeRoute from './fabricType.route.js';
 import fabricColorRoute from './fabricColor.route.js';
 import fabricQualityRoute from './fabricQuality.route.js';
@@ -72,6 +74,14 @@ const defaultRoutes = [
   {
     path: '/fabric-catalogs',
     route: fabricCatalogRoute,
+  },
+  {
+    path: '/thread-suppliers',
+    route: threadSupplierRoute,
+  },
+  {
+    path: '/thread-catalogs',
+    route: threadCatalogRoute,
   },
   {
     path: '/fabric-types',

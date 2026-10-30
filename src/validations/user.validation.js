@@ -30,6 +30,8 @@ const navigationSchema = Joi.object().keys({
       'Fabric Count': crudSchema,
       'Fabric Measurement': crudSchema,
       'Fabric Suppliers': crudSchema,
+      'Thread Catalog': crudSchema,
+      'Thread Suppliers': crudSchema,
       'Packaging materials': crudSchema,
       'Process Master': crudSchema,
       'Attributes Master': crudSchema,

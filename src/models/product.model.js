@@ -12,11 +12,29 @@ const fabricBomItemSchema = mongoose.Schema({
     trim: true,
     required: false,
   },
-  /** Metres per piece */
+  /** Metres per piece. Derived from piecesPerMeter when that field is set. */
   quantity: {
     type: Number,
     required: false,
     min: 0,
+  },
+  /** Pieces of finished goods yielded by one metre of this fabric. */
+  piecesPerMeter: {
+    type: Number,
+    required: false,
+    min: 0,
+  },
+  /** Finished size label, for example 47*47. */
+  sizeLabel: {
+    type: String,
+    trim: true,
+    default: '',
+  },
+  /** Unit for the size label. Sheet values use CM. */
+  uom: {
+    type: String,
+    trim: true,
+    default: 'CM',
   },
   unitCost: {
     type: Number,
@@ -117,6 +135,13 @@ const productSchema = mongoose.Schema(
     },
     /** Legacy knitting field kept optional */
     knittingCode: {
+      type: String,
+      required: false,
+      trim: true,
+      default: '',
+    },
+    /** Free-text material code entered on the item general form */
+    materialCode: {
       type: String,
       required: false,
       trim: true,

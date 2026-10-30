@@ -5,6 +5,7 @@ import { FabricLot, FabricRoll, StockMovement } from '../../models/store.model.j
 import { ProductionOrder, ProductionOrderLog } from '../../models/production.model.js';
 import Product from '../../models/product.model.js';
 import { writeOrderLog } from '../orderLog.service.js';
+import { issueWholeBalance } from './rollBalance.js';
 import { buildSnapshot, fabricLinesFromProduct, linesForRevision, realFabricBom } from '../production/orderSnapshot.js';
 
 const OFF_RACK = new Set(['', 'floor', 'vendor', 'dispatched']);
@@ -91,6 +92,38 @@ function issueRemarks(line, fabric) {
 }
 
 /**
+ * Order, article, and fabric line for an issue or a return.
+ * @param {string} orderId
+ * @param {string} lineId
+ * @param {string} bomLineId
+ */
+export async function loadArticleFabric(orderId, lineId, bomLineId) {
+  if (!orderId) throw new ApiError(httpStatus.BAD_REQUEST, 'Production order is required');
+  const order = await ProductionOrder.findById(orderId);
+  if (!order) throw new ApiError(httpStatus.NOT_FOUND, 'Production order not found');
+  if (!lineId || !mongoose.Types.ObjectId.isValid(lineId)) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'Article not found on this order');
+  }
+  if (!bomLineId) throw new ApiError(httpStatus.BAD_REQUEST, 'Fabric line is required');
+  const line = order.lines.id(lineId);
+  if (!line) throw new ApiError(httpStatus.NOT_FOUND, 'Article not found on this order');
+  const bom = await fabricBomForLine(order, line);
+  const fabric = findFabric(bom, bomLineId);
+  if (!fabric) throw new ApiError(httpStatus.BAD_REQUEST, 'This fabric is not on the article');
+  return { order, line, fabric };
+}
+
+/**
+ * Rejects a roll that is a different fabric from the selected line.
+ * @param {object} fabric
+ * @param {object} roll
+ */
+export function rollFitsFabric(fabric, roll) {
+  if (fabricsMatch(fabric, roll)) return;
+  throw new ApiError(httpStatus.BAD_REQUEST, mismatchMessage(fabric, roll));
+}
+
+/**
  * Issues one scanned roll. With an article line, the roll must match that fabric.
  * Without a line, the older order-only issue still moves the roll to the floor.
  * @param {object} body
@@ -141,24 +174,20 @@ export async function issueFabricRoll(body, user) {
     if (existing) return existing;
   }
 
-  const movement = await StockMovement.create({
-    eventId: body.eventId || undefined,
-    entityType: 'roll',
-    entityId: roll.barcode,
-    kind: 'issue',
-    fromLocation,
-    toLocation: 'floor',
-    quantity: 1,
-    orderId: order.id,
-    lineId: line ? String(line.id || line._id) : '',
-    bomLineId: fabric ? String(fabric.bomLineId || body.bomLineId || '') : '',
-    fabricCatalogId: fabric ? String(fabric.fabricCatalogId || '') : String(roll.fabricId || ''),
-    fabricName: fabric?.fabricName || roll.fabricName || '',
-    netWeight: Number(roll.netWeight) || 0,
-    scaleWeight: Number(roll.scaleWeight) || 0,
-  });
-  roll.status = 'issued';
-  await roll.save();
+  const movement = await issueWholeBalance(
+    roll,
+    {
+      eventId: body.eventId,
+      fromLocation,
+      toLocation: 'floor',
+      orderId: order.id,
+      lineId: line ? String(line.id || line._id) : '',
+      bomLineId: fabric ? String(fabric.bomLineId || body.bomLineId || '') : '',
+      fabricCatalogId: fabric ? String(fabric.fabricCatalogId || '') : String(roll.fabricId || ''),
+      fabricName: fabric?.fabricName || roll.fabricName || '',
+    },
+    user
+  );
   await writeOrderLog(
     {
       action: 'issued',
@@ -213,11 +242,13 @@ export async function listFabricIssues(query) {
         fabricName: row.fabricName || '',
         barcode: row.entityId,
         netWeight: Number(row.netWeight) || 0,
+        grossWeight: row.grossWeight == null ? null : Number(row.grossWeight),
+        qtyMeters: row.qtyMeters == null ? null : Number(row.qtyMeters),
         scaleWeight: Number(row.scaleWeight) || 0,
         fromLocation: row.fromLocation || '',
         articleName: line?.articleName || '',
         factoryCode: line?.factoryCode || '',
-        userName: userByRoll.get(`${String(row.orderId)}:${row.entityId}`) || '',
+        userName: row.userName || userByRoll.get(`${String(row.orderId)}:${row.entityId}`) || '',
         createdAt: row.createdAt,
       };
     }),

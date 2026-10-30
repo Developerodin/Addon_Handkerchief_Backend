@@ -9,6 +9,8 @@ import StyleCode from './styleCode.model.js';
 import StyleCodeCombo from './styleCodeCombo.model.js';
 import FabricSupplier from './fabricSupplier.model.js';
 import FabricCatalog from './fabricCatalog.model.js';
+import ThreadSupplier from './threadSupplier.model.js';
+import ThreadCatalog from './threadCatalog.model.js';
 import FabricType from './fabricType.model.js';
 import FabricColor from './fabricColor.model.js';
 import FabricQuality from './fabricQuality.model.js';
@@ -50,6 +52,8 @@ export {
   StyleCodeCombo,
   FabricSupplier,
   FabricCatalog,
+  ThreadSupplier,
+  ThreadCatalog,
   FabricType,
   FabricColor,
   FabricQuality,

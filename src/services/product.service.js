@@ -50,6 +50,33 @@ const normalizePiecesPerCut = (value) => {
   return parsed;
 };
 
+/**
+ * Metres of fabric per finished piece from pieces yielded by one metre.
+ * @param {number} piecesPerMeter
+ * @returns {number}
+ */
+const metresFromPiecesPerMeter = (piecesPerMeter) => {
+  if (!Number.isFinite(piecesPerMeter) || piecesPerMeter <= 0) return 0;
+  return Number((1 / piecesPerMeter).toFixed(6));
+};
+
+/**
+ * Optional non-negative number. Missing or blank stays undefined.
+ * @param {unknown} value
+ * @returns {number|undefined}
+ */
+const optionalNonNegative = (value) => {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = typeof value === 'number' ? value : parseFloat(String(value));
+  if (!Number.isFinite(parsed)) return undefined;
+  return parsed < 0 ? 0 : parsed;
+};
+
+/**
+ * Normalize fabric BOM lines. piecesPerMeter above zero overwrites quantity (metres per piece).
+ * @param {Array<Object>|undefined} bom
+ * @returns {Array<Object>}
+ */
 const mapBomItems = (bom) =>
   (Array.isArray(bom) ? bom : [])
     .map((item) => {
@@ -62,10 +89,17 @@ const mapBomItems = (bom) =>
       const unitCost =
         typeof item?.unitCost === 'number' ? item.unitCost : item?.unitCost !== undefined ? parseFloat(item.unitCost) || 0 : 0;
       const bomLineId = item?.bomLineId ? String(item.bomLineId).trim() : new mongoose.Types.ObjectId().toString();
+      const piecesPerMeter = optionalNonNegative(item?.piecesPerMeter);
+      const sizeLabel = item?.sizeLabel != null ? String(item.sizeLabel).trim() : '';
+      const uom = item?.uom != null && String(item.uom).trim() ? String(item.uom).trim() : 'CM';
+      const storedPieces = piecesPerMeter !== undefined && piecesPerMeter > 0 ? piecesPerMeter : undefined;
       return {
         fabricCatalogId: normalizedId,
         fabricName: item?.fabricName || item?.yarnName || '',
-        quantity: parsedQty < 0 ? 0 : parsedQty,
+        quantity: storedPieces ? metresFromPiecesPerMeter(storedPieces) : parsedQty < 0 ? 0 : parsedQty,
+        ...(storedPieces ? { piecesPerMeter: storedPieces } : {}),
+        sizeLabel,
+        uom,
         unitCost: unitCost < 0 ? 0 : unitCost,
         bomLineId,
       };
@@ -132,8 +166,9 @@ const normalizeStyleCodeIdsForExcel = (ids) => {
 
 const STANDARD_PRODUCT_KEYS = new Set([
   'id', 'name', 'softwareCode', 'internalCode', 'vendorCode', 'vendorName', 'factoryCode', 'knittingCode',
+  'materialCode',
   'piecesPerCut',
-  'Factory Code', 'Knitting Code', 'factory_code', 'knitting_code',
+  'Factory Code', 'Knitting Code', 'Material Code', 'factory_code', 'knitting_code', 'material_code',
   'styleCodes', 'styleCodeId1', 'styleCodeId2', 'styleCodeId3', 'styleCodeId4', 'styleCodeId5',
   'styleCodeId6', 'styleCodeId7', 'styleCodeId8', 'styleCodeId9', 'styleCodeId10',
   'description', 'category', 'image', 'attributes', 'bom', 'processes', 'rawMaterials',
@@ -161,6 +196,19 @@ const normalizeExcelValue = (val) => {
 /** Needles - only this header is accepted and stored in attributes (same as PATCH edit API) */
 const NEEDLES_KEY = 'Needles';
 
+/**
+ * Reads a material code from an Excel row or API payload.
+ * Accepts materialCode, "Material Code", and material_code.
+ * @param {Object} productData
+ * @returns {string|null} Trimmed code, or null when the field was not sent
+ */
+const readMaterialCode = (productData) => {
+  if (!productData || typeof productData !== 'object') return null;
+  const direct = productData.materialCode ?? productData['Material Code'] ?? productData.material_code;
+  if (direct === undefined || direct === null) return null;
+  return normalizeExcelValue(direct);
+};
+
 const getNeedlesValue = (productData) => {
   const v = productData[NEEDLES_KEY] ?? productData.attributes?.[NEEDLES_KEY];
   if (v !== undefined && v !== null && String(v).trim() !== '') return normalizeExcelValue(v);
@@ -173,7 +221,7 @@ const collectAttributesForExcel = (productData) => {
     Object.entries(productData.attributes).forEach(([k, v]) => {
       if (!k) return;
       const key = String(k).trim();
-      if (key === NEEDLES_KEY) return;
+      if (key === NEEDLES_KEY || key.toLowerCase() === 'material code') return;
       if (v !== undefined && v !== null && String(v).trim() !== '') attrs[key] = String(v).trim();
     });
   }
@@ -226,6 +274,7 @@ export const createProduct = async (productBody) => {
     styleCodes,
     productionType: normalizeProductionType(productBody.productionType),
     vendorName: productBody.vendorName != null ? String(productBody.vendorName).trim() : '',
+    materialCode: productBody.materialCode != null ? String(productBody.materialCode).trim() : '',
     ...(piecesPerCut !== undefined ? { piecesPerCut } : {}),
   };
   // Blank softwareCode must be omitted — the unique index treats ""/null as a real key.
@@ -329,6 +378,7 @@ export const queryProducts = async (filter, options, search) => {
         { vendorCode: searchRegex },
         { factoryCode: searchRegex },
         { knittingCode: searchRegex },
+        { materialCode: searchRegex },
         { description: searchRegex },
       ];
 
@@ -527,6 +577,9 @@ export const updateProductById = async (productId, updateBody) => {
   if (updatePayload.vendorName !== undefined) {
     updatePayload.vendorName = String(updatePayload.vendorName).trim();
   }
+  if (updatePayload.materialCode !== undefined) {
+    updatePayload.materialCode = String(updatePayload.materialCode).trim();
+  }
   if (Array.isArray(updatePayload.bom)) {
     updatePayload.bom = mapBomItems(updatePayload.bom);
   }
@@ -675,6 +728,8 @@ export const bulkImportProducts = async (products, batchSize = 50) => {
               if (productData.vendorCode !== undefined) $set.vendorCode = productData.vendorCode?.trim() ?? '';
               if (productData.factoryCode !== undefined) $set.factoryCode = productData.factoryCode?.trim() ?? '';
               if (productData.knittingCode !== undefined) $set.knittingCode = productData.knittingCode?.trim() ?? '';
+              const importedMaterialCode = readMaterialCode(productData);
+              if (importedMaterialCode !== null) $set.materialCode = importedMaterialCode;
               if (productData.description !== undefined) $set.description = productData.description?.trim() ?? '';
               if (productData.category !== undefined) $set.category = productData.category || null;
               const softwareCodeVal = productData.softwareCode?.trim() ?? '';
@@ -733,6 +788,7 @@ export const bulkImportProducts = async (products, batchSize = 50) => {
                 vendorCode: productData.vendorCode?.trim() || '',
                 factoryCode: productData.factoryCode?.trim() || '',
                 knittingCode: productData.knittingCode?.trim() || '',
+                materialCode: readMaterialCode(productData) || '',
                 description: (productData.description != null && String(productData.description).trim() !== '')
                   ? String(productData.description).trim()
                   : '',
@@ -878,6 +934,8 @@ export const bulkUpsertProducts = async (products, batchSize = 50) => {
               $set.name = String(productData.name).trim();
             if (hasKnittingCode) $set.knittingCode = normalizeExcelValue(knittingCodeRaw);
             if (hasFactoryCode) $set.factoryCode = normalizeExcelValue(factoryCodeRaw);
+            const upsertMaterialCode = readMaterialCode(productData);
+            if (upsertMaterialCode !== null) $set.materialCode = upsertMaterialCode;
             if (normalizedStyleCodes.length > 0) $set.styleCodes = normalizedStyleCodes;
             if (hasProvidedAttributes) {
               Object.entries(collectedAttributes).forEach(([k, v]) => {
@@ -927,6 +985,7 @@ export const bulkUpsertProducts = async (products, batchSize = 50) => {
               vendorCode: productData.vendorCode?.trim() ?? '',
               factoryCode: factoryCodeVal,
               knittingCode: knittingCodeVal,
+              materialCode: readMaterialCode(productData) || '',
               description,
               category,
               softwareCode,
@@ -1016,6 +1075,7 @@ export const bulkExportProducts = async (filter, options = {}, search) => {
       { vendorCode: searchRegex },
       { factoryCode: searchRegex },
       { knittingCode: searchRegex },
+      { materialCode: searchRegex },
       { description: searchRegex },
     ];
     const matchingStyleCodes = await StyleCode.find({
@@ -1060,8 +1120,11 @@ export const bulkExportProducts = async (filter, options = {}, search) => {
       rawAttrs = p.attributes instanceof Map ? Object.fromEntries(p.attributes) : (typeof p.attributes === 'object' ? p.attributes : {});
     }
     const needlesVal = rawAttrs.Needles ?? '';
-    const attrsNoNeedles = { ...rawAttrs };
-    delete attrsNoNeedles.Needles;
+    const materialCodeKey = Object.keys(rawAttrs).find((k) => k.toLowerCase() === 'material code');
+    const legacyMaterialCode = materialCodeKey ? rawAttrs[materialCodeKey] : '';
+    const attrsForColumns = { ...rawAttrs };
+    delete attrsForColumns.Needles;
+    if (materialCodeKey) delete attrsForColumns[materialCodeKey];
     const row = {
       id: p._id,
       name: p.name || '',
@@ -1070,11 +1133,12 @@ export const bulkExportProducts = async (filter, options = {}, search) => {
       vendorCode: normalizeExcelValue(p.vendorCode ?? ''),
       factoryCode: normalizeExcelValue(p.factoryCode ?? ''),
       knittingCode: normalizeExcelValue(p.knittingCode ?? ''),
+      materialCode: normalizeExcelValue(p.materialCode ?? '') || normalizeExcelValue(legacyMaterialCode),
       description: p.description,
       category: p.category?.name || p.category,
       productionType: p.productionType,
       status: p.status,
-      ...attrsNoNeedles,
+      ...attrsForColumns,
       Needles: normalizeExcelValue(needlesVal),
     };
     const styleCodes = Array.isArray(p.styleCodes)

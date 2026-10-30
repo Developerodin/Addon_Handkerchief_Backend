@@ -21,7 +21,7 @@ async function currentRack(barcode) {
  * Active rack matched by code or printed barcode.
  * @param {string} key
  */
-async function findRack(key) {
+export async function findRack(key) {
   const code = String(key || '').trim();
   if (!code) return null;
   return StorageRack.findOne({
@@ -128,16 +128,26 @@ function normalizeFloor(value) {
 }
 
 /**
- * Escapes a code fragment for a RegExp.
- * @param {string} value
+ * Floor belongs in the code once.
+ * ST-B-A02-L001 stays ST-B-A02-L001. A second trailing -B is removed.
+ * A code saved without the floor, such as B1-02-R0001, becomes B1-02-R0001-F01.
+ * @param {string} code
+ * @param {string} floor
+ * @returns {string}
  */
-function escapeRegex(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function rackCodeWithFloor(code, floor) {
+  const parts = String(code || '').split('-').filter((part) => part.length > 0);
+  while (parts.length > 1 && parts[parts.length - 1] === floor && parts.indexOf(floor) < parts.length - 1) {
+    parts.pop();
+  }
+  if (floor && !parts.includes(floor)) parts.push(floor);
+  return parts.join('-');
 }
 
 /**
- * Puts the floor on rack codes that were saved without it.
- * B1-02-R0001 with floor F01 becomes B1-02-R0001-F01, and roll locations follow.
+ * Puts the floor on rack codes that were saved without it, and strips a duplicated trailing floor.
+ * B1-02-R0001 with floor F01 becomes B1-02-R0001-F01. ST-B-A01-U001-B becomes ST-B-A01-U001.
+ * Roll locations follow the renamed code.
  */
 export async function stampFloorOntoCodes() {
   const racks = await StorageRack.find({ floor: { $regex: /\S/ } });
@@ -145,14 +155,17 @@ export async function stampFloorOntoCodes() {
     const floorCode = normalizeFloor(rack.floor);
     if (!/^[A-Z0-9][A-Z0-9-]{0,24}$/.test(floorCode)) continue;
     const current = String(rack.code);
-    if (current.endsWith(`-${floorCode}`)) {
+    const nextCode = rackCodeWithFloor(current, floorCode);
+    if (nextCode === current) {
       if (rack.floor !== floorCode) await StorageRack.updateOne({ _id: rack._id }, { floor: floorCode });
       continue;
     }
-    const nextCode = `${current}-${floorCode}`;
     const taken = await StorageRack.exists({ code: nextCode });
     if (taken) continue;
-    await StorageRack.updateOne({ _id: rack._id }, { code: nextCode, name: nextCode, barcode: nextCode, floor: floorCode });
+    const patch = { code: nextCode, floor: floorCode };
+    if (!rack.name || rack.name === current) patch.name = nextCode;
+    if (!rack.barcode || rack.barcode === current) patch.barcode = nextCode;
+    await StorageRack.updateOne({ _id: rack._id }, patch);
     await StockMovement.updateMany({ toLocation: current }, { $set: { toLocation: nextCode } });
     await StockMovement.updateMany({ fromLocation: current }, { $set: { fromLocation: nextCode } });
     await ProductionOrderLog.updateMany({ toLocation: current }, { $set: { toLocation: nextCode } });
@@ -160,43 +173,155 @@ export async function stampFloorOntoCodes() {
   }
 }
 
+const TOKEN = /^[A-Z0-9]{1,6}$/;
+const BLOCK = /^[A-Z]$/;
+const MAX_CODES = 500;
+
 /**
- * Creates the next N fabric racks in a section and floor. Codes look like B1-02-R0001-F01.
- * The rack number continues per section and floor.
- * @param {{ zone?: string, section?: string, floor?: string, count?: number }} body
+ * Whole number from a JSON body field. NaN when the value is not an integer.
+ * @param {unknown} value
+ */
+function readInt(value) {
+  if (typeof value === 'number' && Number.isInteger(value)) return value;
+  if (typeof value === 'string' && /^-?\d+$/.test(value.trim())) return Number(value.trim());
+  return Number.NaN;
+}
+
+/**
+ * Zero-pads a section number or rack index.
+ * @param {number} value
+ * @param {number} width
+ */
+function padNumber(value, width) {
+  return String(value).padStart(width, '0');
+}
+
+/**
+ * Builds ST-B-A01-U001 codes for one block. Upper and lower each start at 001.
+ * Counts are how many of that kind should exist, not how many to append.
+ * @param {{ location: string, floor: string, block: string, sectionStart: number, sectionCount: number, upperCount: number, lowerCount: number }} input
+ */
+export function buildRackCodes(input) {
+  const codes = [];
+  for (let offset = 0; offset < input.sectionCount; offset += 1) {
+    const section = `${input.block}${padNumber(input.sectionStart + offset, 2)}`;
+    for (let index = 1; index <= input.upperCount; index += 1) {
+      codes.push(`${input.location}-${input.floor}-${section}-U${padNumber(index, 3)}`);
+    }
+    for (let index = 1; index <= input.lowerCount; index += 1) {
+      codes.push(`${input.location}-${input.floor}-${section}-L${padNumber(index, 3)}`);
+    }
+  }
+  return codes;
+}
+
+/**
+ * Normalizes the add-racks form and rejects a range that cannot be generated.
+ * @param {object} body
+ */
+function readRackPlan(body) {
+  const location = String(body.location || '').trim().toUpperCase();
+  const floor = normalizeFloor(body.floor);
+  const block = String(body.block || '').trim().toUpperCase();
+  const sectionStart = readInt(body.sectionStart);
+  const sectionCount = readInt(body.sectionCount);
+  const upperCount = readInt(body.upperCount);
+  const lowerCount = readInt(body.lowerCount);
+  if (!TOKEN.test(location)) throw new ApiError(httpStatus.BAD_REQUEST, 'Location must be letters and numbers');
+  if (!TOKEN.test(floor)) throw new ApiError(httpStatus.BAD_REQUEST, 'Floor must be letters and numbers');
+  if (!BLOCK.test(block)) throw new ApiError(httpStatus.BAD_REQUEST, 'Block must be one letter');
+  if (!Number.isInteger(sectionStart) || sectionStart < 1 || sectionStart > 99) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'First section must be from 1 to 99');
+  }
+  if (!Number.isInteger(sectionCount) || sectionCount < 1) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Enter how many sections');
+  }
+  if (sectionStart + sectionCount - 1 > 99) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Section numbers must stay within 01–99');
+  }
+  if (!Number.isInteger(upperCount) || upperCount < 0 || upperCount > 99) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Upper racks must be from 0 to 99');
+  }
+  if (!Number.isInteger(lowerCount) || lowerCount < 0 || lowerCount > 99) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Lower racks must be from 0 to 99');
+  }
+  if (!upperCount && !lowerCount) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Enter upper racks, lower racks, or both');
+  }
+  if (sectionCount * (upperCount + lowerCount) > MAX_CODES) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Add at most 500 racks at once');
+  }
+  return { location, floor, block, sectionStart, sectionCount, upperCount, lowerCount };
+}
+
+/**
+ * Creates missing fabric racks for a block section range. Codes look like ST-B-A01-U001.
+ * Upper 2 means U001 and U002. A later upper 5 adds only U003 through U005.
+ * @param {{ location?: string, floor?: string, block?: string, sectionStart?: number, sectionCount?: number, upperCount?: number, lowerCount?: number }} body
  */
 export const addStorageRacks = async (body) => {
-  const zone = String(body.zone || body.section || '').trim().toUpperCase();
-  const floor = normalizeFloor(body.floor);
-  const count = Math.min(50, Math.max(1, parseInt(body.count, 10) || 0));
-  if (!/^[A-Z0-9][A-Z0-9-]{0,24}$/.test(zone)) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'Section must be letters, numbers, and dashes');
-  }
-  if (!/^[A-Z0-9][A-Z0-9-]{0,24}$/.test(floor)) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'Floor must be letters, numbers, and dashes');
-  }
-  if (!count) throw new ApiError(httpStatus.BAD_REQUEST, 'Enter how many racks to add');
+  const plan = readRackPlan(body);
+  const codes = buildRackCodes(plan);
   await stampFloorOntoCodes();
-  const rows = await StorageRack.find({ code: new RegExp(`^${escapeRegex(zone)}-R\\d+-${escapeRegex(floor)}$`) }).select('code');
-  let next = 1;
-  rows.forEach((row) => {
-    const match = String(row.code).match(/-R(\d+)-/);
-    if (match) next = Math.max(next, Number(match[1]) + 1);
-  });
+  const existing = await StorageRack.find({ code: { $in: codes } }).select('code');
+  const taken = new Set(existing.map((row) => row.code));
   const created = [];
-  for (let index = 0; index < count; index += 1) {
-    const code = `${zone}-R${String(next + index).padStart(4, '0')}-${floor}`;
-    created.push(await StorageRack.create({
-      code,
-      name: code,
-      zone,
-      floor,
-      stockType: 'fabric',
-      barcode: code,
-      status: 'active',
-    }));
+  for (const code of codes) {
+    if (taken.has(code)) continue;
+    try {
+      created.push(await StorageRack.create({
+        code,
+        name: code,
+        location: plan.location,
+        floor: plan.floor,
+        zone: code.split('-')[2],
+        stockType: 'fabric',
+        barcode: code,
+        status: 'active',
+      }));
+    } catch (err) {
+      if (err && err.code === 11000) continue;
+      throw err;
+    }
   }
-  return { results: created.map((rack) => rack.toJSON()), totalResults: created.length };
+  return {
+    results: created.map((rack) => rack.toJSON()),
+    created: created.length,
+    skipped: codes.length - created.length,
+    totalResults: created.length,
+  };
+};
+
+/**
+ * True when a roll's latest movement still sits on this rack.
+ * @param {string} rackCode
+ */
+async function rackHasRolls(rackCode) {
+  const touched = await StockMovement.distinct('entityId', { entityType: 'roll', toLocation: rackCode });
+  if (!touched.length) return false;
+  const rows = await StockMovement.find({ entityType: 'roll', entityId: { $in: touched } })
+    .sort({ createdAt: 1 })
+    .select('entityId toLocation');
+  const latest = new Map();
+  rows.forEach((row) => latest.set(row.entityId, row.toLocation || ''));
+  return [...latest.values()].some((location) => location === rackCode);
+}
+
+/**
+ * Deletes a rack that has no fabric rolls on it. History rows stay.
+ * @param {object} [_body]
+ * @param {{ rackCode?: string }} [params]
+ */
+export const deleteStorageRack = async (_body, params = {}) => {
+  const code = String(params.rackCode || '').trim().toUpperCase();
+  if (!code) throw new ApiError(httpStatus.BAD_REQUEST, 'Rack is required');
+  const rack = await StorageRack.findOne({ code });
+  if (!rack) throw new ApiError(httpStatus.NOT_FOUND, 'Rack not found');
+  if (await rackHasRolls(rack.code)) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'This rack contains fabric rolls');
+  }
+  await StorageRack.deleteOne({ _id: rack._id });
+  return { code: rack.code, deleted: true };
 };
 
 /**
