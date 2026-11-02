@@ -247,6 +247,7 @@ router.post('/quality/lots/:lotId/pass', ...guard(FABRIC_QC, 'update'), factory.
 router.get('/quality/fabric-orders', ...guard(FABRIC_QC, 'read'), factory.listFabricQcOrders);
 router.get('/quality/fabric-orders/:poId', ...guard(FABRIC_QC, 'read'), factory.getFabricQcOrder);
 router.post('/quality/received-lots', ...guard(FABRIC_QC, 'update'), factory.decideReceivedLot);
+router.post('/quality/rolls/pass', ...guard(FABRIC_QC, 'update'), factory.passQcRoll);
 router.post('/quality/rolls/reject', ...guard(FABRIC_QC, 'update'), factory.rejectQcRoll);
 router.post('/quality/roll-rejections', ...guard(FLOOR_QC, 'create'), factory.rejectRoll);
 router.post('/quality/bundle-checks', ...guard(FLOOR_QC, 'create'), factory.bundleCheck);

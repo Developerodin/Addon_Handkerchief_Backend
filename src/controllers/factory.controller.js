@@ -89,6 +89,7 @@ export const renameGrade = send((body, params) => quality.renameGrade(params.cod
 export const fabricSample = send(quality.recordFabricSample, httpStatus.CREATED);
 export const passLot = send((_body, params) => quality.passLot(params.lotId));
 export const decideReceivedLot = send((body, _params, user) => quality.decideReceivedLot(body, user));
+export const passQcRoll = send((body) => quality.passQcRoll(body));
 export const rejectQcRoll = send((body) => quality.rejectQcRoll(body));
 export const rejectRoll = send(quality.rejectRollToRack, httpStatus.CREATED);
 export const bundleCheck = send(quality.recordBundleCheck, httpStatus.CREATED);

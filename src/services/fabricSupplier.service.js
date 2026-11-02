@@ -54,7 +54,24 @@ const normalizeBody = async (body) => {
   if (next.fabricMill != null) {
     next.fabricMill = String(next.fabricMill).trim();
   }
+  if (Object.prototype.hasOwnProperty.call(next, 'tearWeight')) {
+    next.tearWeight = parseTearWeight(next.tearWeight);
+  }
   return next;
+};
+
+/**
+ * Turns a tear-weight input into kilograms. Blank becomes null.
+ * @param {unknown} value
+ * @returns {number|null}
+ */
+const parseTearWeight = (value) => {
+  if (value === '' || value == null) return null;
+  const weight = Number(value);
+  if (!Number.isFinite(weight) || weight < 0) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Tear weight must be kilograms, like 0.5 or 1');
+  }
+  return weight;
 };
 
 export const createFabricSupplier = async (body) => {

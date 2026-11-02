@@ -121,21 +121,27 @@ export const decideReceivedLot = async (body, user) => {
 };
 
 /**
- * Rejects one scanned roll. The lot stays pending until pass, reject, or hold.
- * @param {{ poId?: string, barcode?: string, remarks?: string }} body
+ * One roll on this purchase order, matched by barcode or roll code.
+ * @param {{ poId?: string, barcode?: string }} body
  */
-export const rejectQcRoll = async (body) => {
+async function findOrderRoll(body) {
   const barcode = String(body.barcode || '').trim();
   const roll = await FabricRoll.findOne({
     poId: body.poId,
     $or: [{ barcode }, { rollCode: barcode }],
   });
   if (!roll) throw new ApiError(httpStatus.NOT_FOUND, 'Roll not found on this order');
-  if (CLOSED_ROLL.includes(roll.status)) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'This roll can no longer be rejected');
-  }
-  roll.qcStatus = 'rejected';
-  await roll.save();
+  return roll;
+}
+
+/**
+ * Records the latest pass or reject for one roll. The received lot is left unchanged.
+ * @param {import('mongoose').Document} roll
+ * @param {string} poId
+ * @param {string} remarks
+ * @param {boolean} passed
+ */
+async function saveRollSample(roll, poId, remarks, passed) {
   const eventId = `fabric-qc-roll:${roll.id}`;
   await QualityResult.findOneAndUpdate(
     { eventId },
@@ -143,14 +149,48 @@ export const rejectQcRoll = async (body) => {
       eventId,
       kind: 'fabric-sample',
       lotId: roll.lotId,
-      orderId: String(body.poId),
+      orderId: String(poId),
       receivedLotNumber: roll.receivedLotNumber,
       rollBarcode: roll.barcode,
-      remarks: String(body.remarks || '').trim(),
-      passed: false,
+      remarks,
+      passed,
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
+}
+
+/**
+ * Passes one scanned roll. The lot stays pending until pass, reject, or hold.
+ * @param {{ poId?: string, barcode?: string, remarks?: string }} body
+ */
+export const passQcRoll = async (body) => {
+  const roll = await findOrderRoll(body);
+  if (CLOSED_ROLL.includes(roll.status)) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'This roll can no longer be passed');
+  }
+  if (roll.qcStatus === 'rejected') {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'A rejected roll cannot be passed');
+  }
+  if (roll.qcStatus !== 'passed') {
+    roll.qcStatus = 'passed';
+    await roll.save();
+  }
+  await saveRollSample(roll, body.poId, String(body.remarks || '').trim(), true);
+  return roll;
+};
+
+/**
+ * Rejects one scanned roll. The lot stays pending until pass, reject, or hold.
+ * @param {{ poId?: string, barcode?: string, remarks?: string }} body
+ */
+export const rejectQcRoll = async (body) => {
+  const roll = await findOrderRoll(body);
+  if (CLOSED_ROLL.includes(roll.status)) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'This roll can no longer be rejected');
+  }
+  roll.qcStatus = 'rejected';
+  await roll.save();
+  await saveRollSample(roll, body.poId, String(body.remarks || '').trim(), false);
   return roll;
 };
 

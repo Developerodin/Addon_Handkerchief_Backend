@@ -106,6 +106,11 @@ const fabricSupplierSchema = mongoose.Schema(
       trim: true,
       default: '',
     },
+    tearWeight: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
     fabricDetails: {
       type: [fabricDetailSchema],
       default: [],

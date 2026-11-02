@@ -12,13 +12,12 @@ import {
 import { FloorCompletion, PieceBundle, ProductionOrder, ProductionOrderLog } from '../models/production.model.js';
 import { ClientOrder, DispatchBox, FactoryClient, PackingBundle } from '../models/warehouse.model.js';
 import { SalesInvoice } from '../models/invoice.model.js';
-import StorageRack from '../models/storageRack.model.js';
-import { stampFloorOntoCodes } from './factory/rackSlots.service.js';
 import { buildRollTrack } from './factory/rollTrack.service.js';
 import { attachFabricIssue } from './factory/fabricIssue.service.js';
 import { realFabricBom } from './production/orderSnapshot.js';
+import { rackBoard } from './factory/rackBoard.service.js';
 
-const OFF_RACK = new Set(['', 'floor', 'vendor', 'dispatched']);
+export { rackBoard };
 
 /**
  * Inclusive date range. A date-only `to` covers that whole day.
@@ -305,48 +304,6 @@ export const rollsOnRack = async (rackCode) => {
     at: row.createdAt,
   }));
   return { rackCode, results, history, totalResults: results.length };
-};
-
-/**
- * Active racks with a derived roll count. occupancy is empty or occupied.
- * @param {object} query
- */
-export const rackBoard = async (query) => {
-  await stampFloorOntoCodes();
-  const racks = await StorageRack.find({ status: 'active' }).sort({ code: 1 });
-  const rows = await StockMovement.find({ entityType: 'roll' }).sort({ createdAt: 1 });
-  const latest = new Map();
-  rows.forEach((row) => latest.set(row.entityId, row));
-  const counts = new Map();
-  const barcodesByRack = new Map();
-  latest.forEach((row, barcode) => {
-    if (OFF_RACK.has(row.toLocation || '')) return;
-    const list = barcodesByRack.get(row.toLocation) || [];
-    list.push(barcode);
-    barcodesByRack.set(row.toLocation, list);
-    counts.set(row.toLocation, (counts.get(row.toLocation) || 0) + 1);
-  });
-  const barcodes = [...barcodesByRack.values()].flat();
-  const storedRolls = barcodes.length ? await FabricRoll.find({ barcode: { $in: barcodes } }).select('barcode fabricName') : [];
-  const fabricByBarcode = new Map(storedRolls.map((roll) => [roll.barcode, roll.fabricName || '']));
-  let results = racks.map((rack) => {
-    const row = rack.toJSON();
-    const fabrics = [...new Set((barcodesByRack.get(row.code) || []).map((barcode) => fabricByBarcode.get(barcode)).filter(Boolean))];
-    return {
-      code: row.code,
-      name: row.name,
-      barcode: row.barcode || row.code,
-      location: row.location || '',
-      floor: row.floor || '',
-      zone: row.zone || '',
-      status: row.status || 'active',
-      count: counts.get(row.code) || 0,
-      fabrics,
-    };
-  });
-  if (query.occupancy === 'empty') results = results.filter((row) => row.count === 0);
-  if (query.occupancy === 'occupied') results = results.filter((row) => row.count > 0);
-  return { results, totalResults: results.length };
 };
 
 /**
