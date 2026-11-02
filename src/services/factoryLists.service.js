@@ -16,6 +16,7 @@ import { buildRollTrack } from './factory/rollTrack.service.js';
 import { attachFabricIssue } from './factory/fabricIssue.service.js';
 import { realFabricBom } from './production/orderSnapshot.js';
 import { rackBoard } from './factory/rackBoard.service.js';
+import FabricSupplier from '../models/fabricSupplier.model.js';
 
 export { rackBoard };
 
@@ -87,13 +88,29 @@ export const searchFilter = (query, fields) => {
 };
 
 /**
- * One purchase order for the edit screen.
+ * Tear weight in kilograms from the fabric supplier named on the purchase order.
+ * The order stores the supplier name, not the supplier id. A missing supplier or a blank tear weight is null.
+ * @param {string} supplierName
+ * @returns {Promise<number|null>}
+ */
+async function supplierTearWeight(supplierName) {
+  const name = String(supplierName || '').trim();
+  if (!name) return null;
+  const pattern = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+  const supplier = await FabricSupplier.findOne({ name: pattern }).select('tearWeight').lean();
+  const weight = supplier?.tearWeight;
+  return typeof weight === 'number' && Number.isFinite(weight) ? weight : null;
+}
+
+/**
+ * One purchase order for the edit screen, plus the selected supplier's tear weight.
  * @param {string} poId
  */
 export const getPurchaseOrder = async (poId) => {
   const order = await PurchaseOrder.findById(poId);
   if (!order) throw new ApiError(httpStatus.NOT_FOUND, 'Purchase order not found');
-  return order;
+  const tearWeight = await supplierTearWeight(order.supplierName);
+  return { ...order.toJSON(), supplierTearWeight: tearWeight };
 };
 
 /**
