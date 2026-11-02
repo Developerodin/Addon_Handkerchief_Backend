@@ -174,7 +174,7 @@ export async function stampFloorOntoCodes() {
 }
 
 const TOKEN = /^[A-Z0-9]{1,6}$/;
-const BLOCK = /^[A-Z]$/;
+const SECTION = /^[A-Z]$/;
 const MAX_CODES = 500;
 
 /**
@@ -188,7 +188,7 @@ function readInt(value) {
 }
 
 /**
- * Zero-pads a section number or rack index.
+ * Zero-pads a block number or rack index.
  * @param {number} value
  * @param {number} width
  */
@@ -197,19 +197,31 @@ function padNumber(value, width) {
 }
 
 /**
- * Builds ST-B-A01-U001 codes for one block. Upper and lower each start at 001.
- * Counts are how many of that kind should exist, not how many to append.
- * @param {{ location: string, floor: string, block: string, sectionStart: number, sectionCount: number, upperCount: number, lowerCount: number }} input
+ * Block digits stored as three characters. "1" and "001" both become "001".
+ * Empty string when the value is not 001–999.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function normalizeBlock(value) {
+  const digits = String(value ?? '').trim();
+  if (!/^\d{1,3}$/.test(digits)) return '';
+  const number = Number(digits);
+  if (number < 1 || number > 999) return '';
+  return padNumber(number, 3);
+}
+
+/**
+ * Builds ST-B-001-A01 codes for one block. Section letters run from the first letter.
+ * The rack count is how many should exist in each section, starting at 01.
+ * @param {{ location: string, floor: string, block: string, sectionStart: string, sectionCount: number, rackCount: number }} input
  */
 export function buildRackCodes(input) {
   const codes = [];
+  const start = input.sectionStart.charCodeAt(0);
   for (let offset = 0; offset < input.sectionCount; offset += 1) {
-    const section = `${input.block}${padNumber(input.sectionStart + offset, 2)}`;
-    for (let index = 1; index <= input.upperCount; index += 1) {
-      codes.push(`${input.location}-${input.floor}-${section}-U${padNumber(index, 3)}`);
-    }
-    for (let index = 1; index <= input.lowerCount; index += 1) {
-      codes.push(`${input.location}-${input.floor}-${section}-L${padNumber(index, 3)}`);
+    const section = String.fromCharCode(start + offset);
+    for (let index = 1; index <= input.rackCount; index += 1) {
+      codes.push(`${input.location}-${input.floor}-${input.block}-${section}${padNumber(index, 2)}`);
     }
   }
   return codes;
@@ -222,42 +234,33 @@ export function buildRackCodes(input) {
 function readRackPlan(body) {
   const location = String(body.location || '').trim().toUpperCase();
   const floor = normalizeFloor(body.floor);
-  const block = String(body.block || '').trim().toUpperCase();
-  const sectionStart = readInt(body.sectionStart);
+  const block = normalizeBlock(body.block);
+  const sectionStart = String(body.sectionStart || '').trim().toUpperCase();
   const sectionCount = readInt(body.sectionCount);
-  const upperCount = readInt(body.upperCount);
-  const lowerCount = readInt(body.lowerCount);
+  const rackCount = readInt(body.rackCount);
   if (!TOKEN.test(location)) throw new ApiError(httpStatus.BAD_REQUEST, 'Location must be letters and numbers');
   if (!TOKEN.test(floor)) throw new ApiError(httpStatus.BAD_REQUEST, 'Floor must be letters and numbers');
-  if (!BLOCK.test(block)) throw new ApiError(httpStatus.BAD_REQUEST, 'Block must be one letter');
-  if (!Number.isInteger(sectionStart) || sectionStart < 1 || sectionStart > 99) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'First section must be from 1 to 99');
-  }
+  if (!block) throw new ApiError(httpStatus.BAD_REQUEST, 'Block must be from 001 to 999');
+  if (!SECTION.test(sectionStart)) throw new ApiError(httpStatus.BAD_REQUEST, 'First section must be one letter');
   if (!Number.isInteger(sectionCount) || sectionCount < 1) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Enter how many sections');
   }
-  if (sectionStart + sectionCount - 1 > 99) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'Section numbers must stay within 01–99');
+  if (sectionStart.charCodeAt(0) + sectionCount - 1 > 'Z'.charCodeAt(0)) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Section letters must stay within A–Z');
   }
-  if (!Number.isInteger(upperCount) || upperCount < 0 || upperCount > 99) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'Upper racks must be from 0 to 99');
+  if (!Number.isInteger(rackCount) || rackCount < 1 || rackCount > 99) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Racks per section must be from 1 to 99');
   }
-  if (!Number.isInteger(lowerCount) || lowerCount < 0 || lowerCount > 99) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'Lower racks must be from 0 to 99');
-  }
-  if (!upperCount && !lowerCount) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'Enter upper racks, lower racks, or both');
-  }
-  if (sectionCount * (upperCount + lowerCount) > MAX_CODES) {
+  if (sectionCount * rackCount > MAX_CODES) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Add at most 500 racks at once');
   }
-  return { location, floor, block, sectionStart, sectionCount, upperCount, lowerCount };
+  return { location, floor, block, sectionStart, sectionCount, rackCount };
 }
 
 /**
- * Creates missing fabric racks for a block section range. Codes look like ST-B-A01-U001.
- * Upper 2 means U001 and U002. A later upper 5 adds only U003 through U005.
- * @param {{ location?: string, floor?: string, block?: string, sectionStart?: number, sectionCount?: number, upperCount?: number, lowerCount?: number }} body
+ * Creates missing fabric racks for a block. Codes look like ST-B-001-A01.
+ * Nine racks on sections A and B is A01–A09 then B01–B09. A later 12 adds only the missing codes.
+ * @param {{ location?: string, floor?: string, block?: string, sectionStart?: string, sectionCount?: number, rackCount?: number }} body
  */
 export const addStorageRacks = async (body) => {
   const plan = readRackPlan(body);
@@ -274,7 +277,7 @@ export const addStorageRacks = async (body) => {
         name: code,
         location: plan.location,
         floor: plan.floor,
-        zone: code.split('-')[2],
+        zone: `${plan.block}-${code.split('-')[3].charAt(0)}`,
         stockType: 'fabric',
         barcode: code,
         status: 'active',
