@@ -26,6 +26,7 @@ const fabricCatalogBody = {
   rate: Joi.number().min(0),
   gst: Joi.string().allow(''),
   hsnCode: Joi.string().allow(''),
+  /** Minimum quantity in meters. */
   minQuantity: Joi.number().min(0),
   status: Joi.string().valid('active', 'inactive'),
   remark: Joi.string().allow(''),

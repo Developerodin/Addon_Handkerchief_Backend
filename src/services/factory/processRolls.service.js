@@ -161,6 +161,10 @@ export async function updateProcessRoll(rollId, body) {
   }
   if (!locked && touchesReceived) applyReceived(roll, body);
   await roll.save();
+  if (!locked && touchesReceived) {
+    const { noteFabricStockChange } = await import('../store/fabricRequisitionSync.js');
+    await noteFabricStockChange(roll.fabricId);
+  }
   return { ...roll.toJSON(), receivedLocked: locked };
 }
 

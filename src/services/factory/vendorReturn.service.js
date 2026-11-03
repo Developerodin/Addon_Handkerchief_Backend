@@ -3,6 +3,7 @@ import ApiError from '../../utils/ApiError.js';
 import { FabricRoll, PurchaseOrder, StockMovement, VendorReturn } from '../../models/store.model.js';
 import { saveStatus } from '../store.service.js';
 import { writeOrderLog } from '../orderLog.service.js';
+import { noteFabricStockChange } from '../store/fabricRequisitionSync.js';
 
 /**
  * Latest rack for a barcode, or an empty string when it was never stored.
@@ -61,6 +62,7 @@ export const createVendorReturn = async (body, user) => {
     });
     roll.status = 'returned-to-vendor';
     await roll.save();
+    await noteFabricStockChange(roll.fabricId);
     await writeOrderLog(
       {
         action: 'vendor-return',

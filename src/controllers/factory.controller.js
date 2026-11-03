@@ -20,6 +20,12 @@ import { listRolls as queryRolls } from '../services/factory/rollQuery.service.j
 import * as rackSlots from '../services/factory/rackSlots.service.js';
 import * as fabricIssue from '../services/factory/fabricIssue.service.js';
 import * as fabricReturn from '../services/factory/fabricReturn.service.js';
+import * as requisitions from '../services/store/fabricRequisition.service.js';
+import * as consumption from '../services/factory/consumptionReport.service.js';
+import * as supplierAnalytics from '../services/factory/supplierAnalytics.service.js';
+import * as poAnalytics from '../services/factory/poAnalytics.service.js';
+import * as liveInventory from '../services/factory/liveInventory.service.js';
+import * as fabricAnalytics from '../services/factory/fabricAnalytics.service.js';
 
 /** @param {(body: object, params: object) => Promise<unknown>} work */
 const send = (work, status = httpStatus.OK) =>
@@ -37,7 +43,7 @@ export const createPo = send(store.createPurchaseOrder, httpStatus.CREATED);
 export const submitPo = send((_body, params, user) => store.submitPurchaseOrder(params.poId, user));
 export const commercials = send((body, params) => store.setDraftCommercials(params.poId, body));
 export const createLot = send((body) => store.createLot(body.poId, body.cutoffs), httpStatus.CREATED);
-export const decideCutoffs = send((body, params) => store.decideCutoffs(params.lotId, body.decisions));
+export const decideCutoffs = send((body, params, user) => store.decideCutoffs(params.lotId, body.decisions, user));
 export const packingList = send(packing.createPackingList, httpStatus.CREATED);
 export const parsePackingListPdf = catchAsync(async (req, res) => {
   if (!req.file) {
@@ -153,3 +159,26 @@ export const listClientOrders = sendQuery(lists.listClientOrders);
 export const listPackingBundles = sendQuery(lists.listPackingBundles);
 export const listBoxes = sendQuery(lists.listBoxes);
 export const listInvoices = sendQuery(lists.listInvoices);
+export const listRequisitions = sendQuery(requisitions.listRequisitions);
+export const requisitionSupplier = send((body, params) => requisitions.setSupplier(params.requisitionId, body));
+export const requisitionDraftPo = send((body, params) => requisitions.sendToDraft(params.requisitionId, body));
+export const requisitionDismiss = send((_body, params) => requisitions.dismiss(params.requisitionId));
+export const consumptionReport = sendQuery((query) => consumption.consumptionReport(query));
+export const consumptionDetail = sendQuery((query) => consumption.consumptionDetail(query));
+/** Live fabric inventory as JSON, or CSV when format=csv. */
+export const liveInventoryReport = catchAsync(async (req, res) => {
+  if (req.query.format === 'csv') {
+    const csv = await liveInventory.liveInventoryCsv(req.query);
+    res.set('Content-Type', 'text/csv; charset=utf-8');
+    res.set('Content-Disposition', 'attachment; filename="live-inventory.csv"');
+    res.send(csv);
+    return;
+  }
+  res.send(await liveInventory.liveInventory(req.query));
+});
+export const liveInventoryUnallocated = sendQuery((query) => liveInventory.unallocatedRolls(query));
+export const fabricAnalyticsReport = sendQuery((query) => fabricAnalytics.fabricAnalytics(query));
+export const suppliersReport = sendQuery(() => supplierAnalytics.suppliersReport());
+export const supplierDetail = sendQuery((query) => supplierAnalytics.supplierDetail(query));
+export const poAnalyticsReport = sendQuery((query) => poAnalytics.poAnalytics(query));
+export const poDossier = sendQuery((_query, params) => poAnalytics.poDossier(params.poId));

@@ -205,6 +205,10 @@ export const updateFabricCatalogById = async (fabricId, updateBody) => {
     fabric.name = requireGeneratedFabricName(fabric);
   }
   await fabric.save();
+  if (Object.prototype.hasOwnProperty.call(updateBody, 'minQuantity')) {
+    const { noteFabricStockChange } = await import('./store/fabricRequisitionSync.js');
+    await noteFabricStockChange(String(fabric._id));
+  }
   return fabric.populate(FABRIC_POPULATE);
 };
 

@@ -77,6 +77,7 @@ export const createPurchaseOrder = async (body, _params, user) => {
   const po = await PurchaseOrder.create({
     number: body.number || (await nextPurchaseOrderNumber()),
     supplierName: body.supplierName,
+    ...(body.supplierId ? { supplierId: body.supplierId } : {}),
     supplierAddress: body.supplierAddress || '',
     supplierTerms: body.supplierTerms || '',
     purchaseDate: body.purchaseDate || new Date(),
@@ -120,6 +121,7 @@ export const updatePurchaseOrder = async (poId, body) => {
   if (body.purchaseDate) po.purchaseDate = body.purchaseDate;
   if (body.creditDays != null) po.creditDays = body.creditDays;
   if (body.notes != null) po.notes = body.notes;
+  const previousLines = body.replaceLines ? po.lines.map((line) => line.toObject()) : null;
   if (body.replaceLines && Array.isArray(body.lines)) {
     po.lines = body.lines;
   }
@@ -130,6 +132,10 @@ export const updatePurchaseOrder = async (poId, body) => {
     });
   }
   await po.save();
+  if (previousLines) {
+    const { releaseRequisitionsRemovedFromDraft } = await import('./store/fabricRequisition.service.js');
+    await releaseRequisitionsRemovedFromDraft(previousLines, po.lines);
+  }
   return po;
 };
 
@@ -166,7 +172,10 @@ export const submitPurchaseOrder = async (poId, user) => {
       throw new ApiError(httpStatus.BAD_REQUEST, `${label} GST must be between 0 and 100`);
     }
   });
-  return saveStatus(po, 'Submitted to Vendor', 'Submitted', user);
+  const saved = await saveStatus(po, 'Submitted to Vendor', 'Submitted', user);
+  const { linkRequisitionsForPurchaseOrder } = await import('./store/fabricRequisition.service.js');
+  await linkRequisitionsForPurchaseOrder(saved);
+  return saved;
 };
 
 /**
@@ -204,8 +213,9 @@ export const createLot = async (poId, cutoffs) => {
  * A decision for a fabric that is not on the lot yet is added, still only if the caller sent it.
  * @param {string} lotId
  * @param {Array<{ fabricId: string, approved: boolean }>} decisions
+ * @param {object | null} [user]
  */
-export const decideCutoffs = async (lotId, decisions) => {
+export const decideCutoffs = async (lotId, decisions, user = null) => {
   const lot = await FabricLot.findById(lotId);
   if (!lot) throw new ApiError(httpStatus.NOT_FOUND, 'Lot not found');
   decisions.forEach((row) => {
@@ -216,6 +226,8 @@ export const decideCutoffs = async (lotId, decisions) => {
   });
   const allApproved = lot.cutoffs.length > 0 && lot.cutoffs.every((row) => row.approved);
   lot.status = allApproved ? 'approved' : 'pending-cutoff';
+  lot.approvedBy = allApproved ? user?.name || user?.email || '' : '';
+  lot.approvedAt = allApproved ? new Date() : null;
   await lot.save();
   return lot;
 };

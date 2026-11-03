@@ -1,8 +1,11 @@
 import express from 'express';
 import multer from 'multer';
 import auth from '../../middlewares/auth.js';
+import validate from '../../middlewares/validate.js';
 import { requireAnyCrudPath, requireCrud } from '../../middlewares/requireCrud.js';
 import * as factory from '../../controllers/factory.controller.js';
+import * as liveInventoryValidation from '../../validations/liveInventory.validation.js';
+import getFabricAnalytics from '../../validations/fabricAnalytics.validation.js';
 
 const router = express.Router();
 
@@ -44,6 +47,7 @@ const INVOICES = 'Accounts / Invoices';
 const REPORTS = 'Reports';
 const F_PO = 'Fabric / Purchase orders';
 const F_DRAFTS = 'Fabric / Drafts';
+const F_REQUISITIONS = 'Fabric / Requisitions';
 const F_RECEIPTS = 'Fabric / Receipts';
 const F_GRN = 'Fabric / GRN history';
 const F_VENDOR = 'Fabric / Vendor return';
@@ -55,6 +59,8 @@ const F_LIVE = 'Fabric / Live inventory';
 const F_STOCK = 'Fabric / Stock report';
 const F_PO_ANALYTICS = 'Fabric / PO analytics';
 const F_FABRIC_ANALYTICS = 'Fabric / Fabric analytics';
+const F_CONSUMPTION = 'Fabric / Consumption report';
+const F_SUPPLIERS = 'Fabric / Suppliers report';
 
 /**
  * Allow the older Store key or any Fabric Management screen that uses the route.
@@ -68,10 +74,28 @@ router.post('/sync/pull', ...guard(SYNC, 'read'), factory.pull);
 router.post('/sync/events', ...guard(SYNC, 'create'), factory.enqueue);
 router.post('/sync/apply', ...guard(SYNC, 'update'), factory.apply);
 
-const poRead = [PO, F_PO, F_DRAFTS, F_PO_ANALYTICS];
+const poRead = [PO, F_PO, F_DRAFTS, F_PO_ANALYTICS, F_REQUISITIONS];
 const poWrite = [PO, F_PO, F_DRAFTS];
+const requisitionWrite = [PO, F_PO, F_DRAFTS, F_REQUISITIONS];
 const receiptRead = [RECEIPT, F_RECEIPTS, F_GRN, F_VENDOR, F_CHALLAN, F_FABRIC_ANALYTICS];
 const rackRead = [RACKS, F_STORAGE, F_ISSUE, F_RETURN, F_LIVE, F_STOCK];
+
+router.get('/store/requisitions', ...screens('read', poRead), factory.listRequisitions);
+router.patch(
+  '/store/requisitions/:requisitionId/supplier',
+  ...screens('update', requisitionWrite),
+  factory.requisitionSupplier
+);
+router.post(
+  '/store/requisitions/:requisitionId/draft-po',
+  ...screens('update', requisitionWrite),
+  factory.requisitionDraftPo
+);
+router.patch(
+  '/store/requisitions/:requisitionId/dismiss',
+  ...screens('update', requisitionWrite),
+  factory.requisitionDismiss
+);
 
 router.get('/store/purchase-orders', ...screens('read', poRead), factory.listPurchaseOrders);
 router.post('/store/purchase-orders', ...screens('create', poWrite), factory.createPo);
@@ -152,6 +176,30 @@ router.get('/store/rack-board', ...screens('read', rackRead), factory.rackBoard)
 router.get('/store/storage-report', ...screens('read', rackRead), factory.storageReport);
 router.get('/store/racks/:rackCode', ...screens('read', rackRead), factory.rollsOnRack);
 router.get('/store/issues', ...screens('read', rackRead), factory.listFabricIssues);
+router.get('/store/reports/consumption/detail', ...screens('read', [F_CONSUMPTION]), factory.consumptionDetail);
+router.get('/store/reports/consumption', ...screens('read', [F_CONSUMPTION]), factory.consumptionReport);
+router.get(
+  '/store/reports/live-inventory/unallocated',
+  ...screens('read', [F_LIVE]),
+  validate(liveInventoryValidation.getUnallocatedRolls),
+  factory.liveInventoryUnallocated
+);
+router.get(
+  '/store/reports/live-inventory',
+  ...screens('read', [F_LIVE]),
+  validate(liveInventoryValidation.getLiveInventory),
+  factory.liveInventoryReport
+);
+router.get(
+  '/store/reports/fabric',
+  ...screens('read', [F_FABRIC_ANALYTICS]),
+  validate(getFabricAnalytics),
+  factory.fabricAnalyticsReport
+);
+router.get('/store/reports/suppliers/detail', ...screens('read', [F_SUPPLIERS]), factory.supplierDetail);
+router.get('/store/reports/suppliers', ...screens('read', [F_SUPPLIERS]), factory.suppliersReport);
+router.get('/store/reports/po', ...screens('read', [F_PO_ANALYTICS]), factory.poAnalyticsReport);
+router.get('/store/reports/po/:poId', ...screens('read', [F_PO_ANALYTICS]), factory.poDossier);
 router.get('/store/returns', ...screens('read', rackRead), factory.listFabricReturns);
 router.post('/store/issues', ...screens('create', [RACKS, F_ISSUE]), factory.issue);
 router.post(

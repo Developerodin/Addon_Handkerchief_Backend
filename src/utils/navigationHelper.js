@@ -45,6 +45,7 @@ export const FACTORY_SCREEN_KEYS = [
   'Accounts / Invoices',
   'Reports',
   'Fabric / Purchase orders',
+  'Fabric / Requisitions',
   'Fabric / Drafts',
   'Fabric / Receipts',
   'Fabric / GRN history',
@@ -57,11 +58,14 @@ export const FACTORY_SCREEN_KEYS = [
   'Fabric / Stock report',
   'Fabric / PO analytics',
   'Fabric / Fabric analytics',
+  'Fabric / Consumption report',
+  'Fabric / Suppliers report',
 ];
 
 /** Fill a new Fabric screen from the Store or Reports grant it used to share. */
 const FABRIC_FROM_LEGACY = {
   'Fabric / Purchase orders': 'Store / Purchase orders',
+  'Fabric / Requisitions': 'Store / Purchase orders',
   'Fabric / Drafts': 'Store / Purchase orders',
   'Fabric / Receipts': 'Store / Receipt',
   'Fabric / GRN history': 'Store / Receipt',
@@ -85,6 +89,8 @@ const FABRIC_FROM_LEGACY = {
   'Fabric / Stock report': 'Reports',
   'Fabric / PO analytics': 'Reports',
   'Fabric / Fabric analytics': 'Reports',
+  'Fabric / Consumption report': 'Reports',
+  'Fabric / Suppliers report': 'Reports',
 };
 
 export const CATALOG_MODULES = [

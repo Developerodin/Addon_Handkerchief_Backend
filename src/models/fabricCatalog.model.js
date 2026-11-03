@@ -148,6 +148,7 @@ const fabricCatalogSchema = mongoose.Schema(
       trim: true,
       default: '',
     },
+    /** Minimum quantity, stored in meters. */
     minQuantity: {
       type: Number,
       min: 0,

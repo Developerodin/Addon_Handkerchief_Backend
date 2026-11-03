@@ -72,6 +72,7 @@ const navigationSchema = Joi.object().keys({
   'Accounts / Invoices': crudSchema,
   Reports: crudSchema,
   'Fabric / Purchase orders': crudSchema,
+  'Fabric / Requisitions': crudSchema,
   'Fabric / Drafts': crudSchema,
   'Fabric / Receipts': crudSchema,
   'Fabric / GRN history': crudSchema,
@@ -84,6 +85,8 @@ const navigationSchema = Joi.object().keys({
   'Fabric / Stock report': crudSchema,
   'Fabric / PO analytics': crudSchema,
   'Fabric / Fabric analytics': crudSchema,
+  'Fabric / Consumption report': crudSchema,
+  'Fabric / Suppliers report': crudSchema,
   'Help & Support': helpSupportSchema,
 });
 

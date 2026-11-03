@@ -2,6 +2,7 @@ import httpStatus from 'http-status';
 import ApiError from '../../utils/ApiError.js';
 import { StockMovement } from '../../models/store.model.js';
 import { actorOf } from '../orderLog.service.js';
+import { noteFabricStockChange } from '../store/fabricRequisitionSync.js';
 
 const ON_FLOOR = new Set(['issued', 'on-floor']);
 
@@ -147,6 +148,7 @@ export async function issueWholeBalance(roll, movement, user) {
   roll.currentQtyMeters = 0;
   roll.status = 'issued';
   await roll.save();
+  await noteFabricStockChange(roll.fabricId);
   return saved;
 }
 
@@ -172,6 +174,7 @@ export async function returnRollBalance(roll, body, user) {
   roll.currentQtyMeters = leftover.meters;
   roll.status = 'stored';
   await roll.save();
+  await noteFabricStockChange(roll.fabricId);
   const movement = await StockMovement.create({
     entityType: 'roll',
     entityId: roll.barcode,

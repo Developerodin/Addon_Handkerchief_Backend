@@ -4,6 +4,7 @@ import { FabricRoll, PurchaseOrder, StockMovement } from '../../models/store.mod
 import { ProductionOrderLog } from '../../models/production.model.js';
 import StorageRack from '../../models/storageRack.model.js';
 import { writeOrderLog } from '../orderLog.service.js';
+import { noteFabricStockChange } from '../store/fabricRequisitionSync.js';
 
 const OFF_RACK = new Set(['', 'floor', 'vendor', 'dispatched']);
 
@@ -63,6 +64,7 @@ export const placeRoll = async (body, user) => {
   });
   roll.status = 'stored';
   await roll.save();
+  await noteFabricStockChange(roll.fabricId);
   await writeOrderLog(
     {
       action: 'rack',
@@ -104,6 +106,7 @@ export const unallocateRoll = async (body, _params, user) => {
   });
   roll.status = 'received';
   await roll.save();
+  await noteFabricStockChange(roll.fabricId);
   await writeOrderLog(
     {
       action: 'rack',

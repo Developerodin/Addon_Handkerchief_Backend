@@ -13,6 +13,13 @@ const poLineSchema = mongoose.Schema(
     millNewFabricSortNo: { type: String, default: '' },
     countName: { type: String, default: '' },
     quantity: { type: Number, required: true, min: 0 },
+    sourceRequisitionId: { type: mongoose.SchemaTypes.ObjectId, ref: 'FabricRequisition' },
+    stagedFromRequisitions: [
+      {
+        requisitionId: { type: mongoose.SchemaTypes.ObjectId, ref: 'FabricRequisition' },
+        quantity: { type: Number, min: 0, default: 0 },
+      },
+    ],
     unitId: { type: mongoose.SchemaTypes.ObjectId, ref: 'FabricMeasurement' },
     unitName: { type: String, default: '' },
     priority: { type: Boolean, default: false },
@@ -28,6 +35,7 @@ const purchaseOrderSchema = mongoose.Schema(
   {
     number: { type: String, required: true, unique: true },
     supplierName: { type: String, required: true },
+    supplierId: { type: mongoose.SchemaTypes.ObjectId, ref: 'FabricSupplier' },
     supplierAddress: { type: String, default: '' },
     supplierTerms: { type: String, default: '' },
     purchaseDate: { type: Date, default: Date.now },
@@ -81,11 +89,15 @@ const purchaseOrderSchema = mongoose.Schema(
   { timestamps: true }
 );
 
+purchaseOrderSchema.index({ supplierName: 1, purchaseDate: -1 });
+
 const fabricLotSchema = mongoose.Schema(
   {
     poId: { type: mongoose.SchemaTypes.ObjectId, ref: 'PurchaseOrder', required: true },
     status: { type: String, enum: ['pending-cutoff', 'approved', 'rejected'], default: 'pending-cutoff' },
     qcStatus: { type: String, enum: ['pending', 'passed', 'held'], default: 'pending' },
+    approvedBy: { type: String, default: '' },
+    approvedAt: { type: Date, default: null },
     cutoffs: [{ fabricId: String, approved: { type: Boolean, default: false } }],
   },
   { timestamps: true }
@@ -216,6 +228,9 @@ const fabricRollSchema = mongoose.Schema(
   { timestamps: true }
 );
 
+fabricRollSchema.index({ status: 1, fabricId: 1 });
+fabricRollSchema.index({ poId: 1, qcStatus: 1 });
+
 const stockMovementSchema = mongoose.Schema(
   {
     eventId: { type: String, unique: true, sparse: true },
@@ -241,6 +256,7 @@ const stockMovementSchema = mongoose.Schema(
 );
 
 stockMovementSchema.index({ orderId: 1, createdAt: -1 });
+stockMovementSchema.index({ entityType: 1, entityId: 1, createdAt: -1 });
 
 const vendorReturnSchema = mongoose.Schema(
   {
