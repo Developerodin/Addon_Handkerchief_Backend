@@ -24,19 +24,24 @@ export const FACTORY_SCREEN_KEYS = [
   'Store / Racks and issue',
   'Production / Orders',
   'Production / Floor',
-  'Production / Cut',
-  'Production / Selvage',
-  'Production / Half moon',
-  'Production / Vertical hem',
-  'Production / Bundle',
-  'Production / Horizontal hem',
-  'Production / Thread cut',
-  'Production / Iron',
+  'Production / Vertical cutting',
+  'Production / Selvage cutting',
+  'Production / Half moon cutting',
+  'Production / Vertical hemming',
+  'Production / Single piece cutting',
+  'Production / Horizontal hemming',
+  'Production / Thread cutting',
+  'Production / Move to ground',
+  'Production / Ironing',
   'Production / Route split',
   'Production / Embroidery',
   'Production / Sticker',
+  'Production / Thread cutting after embroidery',
+  'Production / Ironing after route',
   'Quality / Fabric QC',
   'Quality / Floor checks',
+  'Quality / Final QC',
+  'Quality / Final checking',
   'Quality / Grades',
   'Warehouse / Packing',
   'Warehouse / Boxes',
@@ -74,17 +79,28 @@ const FABRIC_FROM_LEGACY = {
   'Fabric / Issue': 'Store / Racks and issue',
   'Fabric / Return': 'Store / Racks and issue',
   'Fabric / Storage': 'Store / Racks and issue',
+  'Production / Vertical cutting': 'Production / Floor',
   'Production / Cut': 'Production / Floor',
+  'Production / Selvage cutting': 'Production / Floor',
   'Production / Selvage': 'Production / Floor',
+  'Production / Half moon cutting': 'Production / Floor',
   'Production / Half moon': 'Production / Floor',
+  'Production / Vertical hemming': 'Production / Floor',
   'Production / Vertical hem': 'Production / Floor',
+  'Production / Single piece cutting': 'Production / Floor',
   'Production / Bundle': 'Production / Floor',
+  'Production / Horizontal hemming': 'Production / Floor',
   'Production / Horizontal hem': 'Production / Floor',
+  'Production / Thread cutting': 'Production / Floor',
   'Production / Thread cut': 'Production / Floor',
+  'Production / Move to ground': 'Production / Floor',
+  'Production / Ironing': 'Production / Floor',
   'Production / Iron': 'Production / Floor',
   'Production / Route split': 'Production / Floor',
   'Production / Embroidery': 'Production / Floor',
   'Production / Sticker': 'Production / Floor',
+  'Production / Thread cutting after embroidery': 'Production / Floor',
+  'Production / Ironing after route': 'Production / Floor',
   'Fabric / Live inventory': 'Reports',
   'Fabric / Stock report': 'Reports',
   'Fabric / PO analytics': 'Reports',
@@ -218,8 +234,27 @@ export const effectiveNavigation = (user) => {
   const merged = mergeNavigation(roleDefaults, stored);
   denyUnsetThreadModules(merged, stored);
   for (const [next, legacy] of Object.entries(FABRIC_FROM_LEGACY)) {
-    if (stored[next] != null || stored[legacy] == null) continue;
-    const legacyCrud = normalizeCrud(stored[legacy]);
+    if (stored[next] != null) continue;
+    const sourceKey =
+      next === 'Production / Vertical cutting' && stored['Production / Cut'] != null
+        ? 'Production / Cut'
+        : next === 'Production / Selvage cutting' && stored['Production / Selvage'] != null
+          ? 'Production / Selvage'
+          : next === 'Production / Half moon cutting' && stored['Production / Half moon'] != null
+            ? 'Production / Half moon'
+            : next === 'Production / Vertical hemming' && stored['Production / Vertical hem'] != null
+              ? 'Production / Vertical hem'
+              : next === 'Production / Single piece cutting' && stored['Production / Bundle'] != null
+                ? 'Production / Bundle'
+                : next === 'Production / Horizontal hemming' && stored['Production / Horizontal hem'] != null
+                  ? 'Production / Horizontal hem'
+                  : next === 'Production / Thread cutting' && stored['Production / Thread cut'] != null
+                    ? 'Production / Thread cut'
+                    : next === 'Production / Ironing' && stored['Production / Iron'] != null
+                      ? 'Production / Iron'
+                      : legacy;
+    if (stored[sourceKey] == null) continue;
+    const legacyCrud = normalizeCrud(stored[sourceKey]);
     const granted = legacyCrud.create || legacyCrud.read || legacyCrud.update || legacyCrud.delete;
     if (granted) merged[next] = applyCrudDependencies(legacyCrud);
   }

@@ -2,7 +2,6 @@ import httpStatus from 'http-status';
 import mongoose from 'mongoose';
 import ApiError from '../utils/ApiError.js';
 import { CutPiece, FloorCompletion, PieceBundle, ProductionOrder, ThreadUse } from '../models/production.model.js';
-import { FabricRoll } from '../models/store.model.js';
 import Product from '../models/product.model.js';
 import { nextCode } from './factory/ids.js';
 import { writeOrderLog } from './orderLog.service.js';
@@ -322,20 +321,6 @@ export const receiveBundle = async (body, _params, user) => {
     user
   );
   return bundle;
-};
-
-/**
- * Prints one barcode per piece and closes the roll.
- * @param {{ orderId: string, rollBarcode: string, pieceCount: number }} body
- */
-export const cutRoll = async (body) => {
-  const pieces = [];
-  for (let index = 0; index < body.pieceCount; index += 1) {
-    const piece = await recordPiece({ orderId: body.orderId, rollBarcode: body.rollBarcode });
-    pieces.push(piece);
-  }
-  await FabricRoll.updateOne({ barcode: body.rollBarcode }, { status: 'on-floor' });
-  return pieces;
 };
 
 /**

@@ -24,20 +24,33 @@ const ORDERS = 'Production / Orders';
 const FLOOR = 'Production / Floor';
 const FLOOR_SCREENS = [
   FLOOR,
+  'Production / Vertical cutting',
   'Production / Cut',
+  'Production / Selvage cutting',
   'Production / Selvage',
+  'Production / Half moon cutting',
   'Production / Half moon',
+  'Production / Vertical hemming',
   'Production / Vertical hem',
+  'Production / Single piece cutting',
   'Production / Bundle',
+  'Production / Horizontal hemming',
   'Production / Horizontal hem',
+  'Production / Thread cutting',
   'Production / Thread cut',
+  'Production / Ironing',
   'Production / Iron',
+  'Production / Move to ground',
   'Production / Route split',
   'Production / Embroidery',
   'Production / Sticker',
+  'Production / Thread cutting after embroidery',
+  'Production / Ironing after route',
 ];
 const FABRIC_QC = 'Quality / Fabric QC';
 const FLOOR_QC = 'Quality / Floor checks';
+const FINAL_QC = 'Quality / Final QC';
+const FINAL_CHECKING = 'Quality / Final checking';
 const GRADES = 'Quality / Grades';
 const PACKING = 'Warehouse / Packing';
 const BOXES = 'Warehouse / Boxes';
@@ -265,6 +278,7 @@ router.get(
 router.post('/production/orders', ...guard(ORDERS, 'create'), factory.releaseOrder);
 router.patch('/production/orders/:orderId', ...guard(ORDERS, 'update'), factory.updateOrder);
 router.post('/production/orders/:orderId/release', ...guard(ORDERS, 'update'), factory.releaseDraft);
+router.post('/production/orders/:orderId/assume-issued', ...guard(ORDERS, 'update'), factory.assumeIssued);
 router.post('/production/orders/:orderId/hold', ...guard(ORDERS, 'update'), factory.holdOrder);
 router.delete('/production/orders/:orderId', ...guard(ORDERS, 'delete'), factory.deleteDraft);
 router.post('/production/orders/:orderId/amend', ...guard(ORDERS, 'update'), factory.amendOrder);
@@ -282,7 +296,52 @@ router.patch(
 router.post('/production/orders/:orderId/transfer', ...screens('create', FLOOR_SCREENS), factory.transferBundle);
 router.post('/production/completions', ...screens('create', FLOOR_SCREENS), factory.completeStage);
 router.post('/production/bundles/receive', ...screens('create', FLOOR_SCREENS), factory.receiveBundle);
+router.get('/production/cuts/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingCuts);
 router.post('/production/cuts', ...screens('create', FLOOR_SCREENS), factory.cutRoll);
+router.post('/production/cuts/place', ...screens('create', FLOOR_SCREENS), factory.placeCutPieces);
+router.get('/production/selvage/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingSelvage);
+router.post('/production/selvage/start', ...screens('create', FLOOR_SCREENS), factory.startSelvage);
+router.post('/production/selvage/place', ...screens('create', FLOOR_SCREENS), factory.placeSelvage);
+router.get('/production/half-moon/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingHalfMoon);
+router.post('/production/half-moon/start', ...screens('create', FLOOR_SCREENS), factory.startHalfMoon);
+router.post('/production/half-moon/place', ...screens('create', FLOOR_SCREENS), factory.placeHalfMoon);
+router.get('/production/vertical-hem/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingVerticalHem);
+router.post('/production/vertical-hem/start', ...screens('create', FLOOR_SCREENS), factory.startVerticalHem);
+router.post('/production/vertical-hem/place', ...screens('create', FLOOR_SCREENS), factory.placeVerticalHem);
+router.get('/production/single-piece/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingSinglePiece);
+router.post('/production/single-piece/start', ...screens('create', FLOOR_SCREENS), factory.startSinglePiece);
+router.post('/production/single-piece/cut', ...screens('create', FLOOR_SCREENS), factory.cutSinglePiece);
+router.post('/production/single-piece/close', ...screens('create', FLOOR_SCREENS), factory.closeSinglePiece);
+router.post('/production/single-piece/place', ...screens('create', FLOOR_SCREENS), factory.placeSinglePiece);
+router.get('/production/horizontal-hem/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingHorizontalHem);
+router.post('/production/horizontal-hem/start', ...screens('create', FLOOR_SCREENS), factory.startHorizontalHem);
+router.post('/production/horizontal-hem/place', ...screens('create', FLOOR_SCREENS), factory.placeHorizontalHem);
+router.get('/production/thread-cut/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingThreadCut);
+router.post('/production/thread-cut/start', ...screens('create', FLOOR_SCREENS), factory.startThreadCut);
+router.post('/production/thread-cut/place', ...screens('create', FLOOR_SCREENS), factory.placeThreadCut);
+router.get('/quality/final-qc/upcoming', ...screens('read', [FLOOR_QC, FINAL_QC]), factory.upcomingFinalQc);
+router.post('/quality/final-qc', ...screens('create', [FLOOR_QC, FINAL_QC]), factory.recordFinalQc);
+router.get('/production/to-ground/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingToGround);
+router.post('/production/to-ground/place', ...screens('create', FLOOR_SCREENS), factory.placeToGround);
+router.get('/production/iron/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingIron);
+router.post('/production/iron/start', ...screens('create', FLOOR_SCREENS), factory.startIron);
+router.post('/production/iron/place', ...screens('create', FLOOR_SCREENS), factory.placeIron);
+router.get('/production/route-split/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingBundleBreak);
+router.post('/production/route-split/break', ...screens('create', FLOOR_SCREENS), factory.breakForRoute);
+router.get('/production/embroidery/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingEmbroidery);
+router.post('/production/embroidery/start', ...screens('create', FLOOR_SCREENS), factory.startEmbroidery);
+router.post('/production/embroidery/place', ...screens('create', FLOOR_SCREENS), factory.placeEmbroidery);
+router.get('/production/sticker/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingSticker);
+router.post('/production/sticker/start', ...screens('create', FLOOR_SCREENS), factory.startSticker);
+router.post('/production/sticker/place', ...screens('create', FLOOR_SCREENS), factory.placeSticker);
+router.get('/production/embroidery-thread-cut/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingEmbroideryThread);
+router.post('/production/embroidery-thread-cut/start', ...screens('create', FLOOR_SCREENS), factory.startEmbroideryThread);
+router.post('/production/embroidery-thread-cut/place', ...screens('create', FLOOR_SCREENS), factory.placeEmbroideryThread);
+router.get('/production/iron-after/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingIronAfter);
+router.post('/production/iron-after/start', ...screens('create', FLOOR_SCREENS), factory.startIronAfter);
+router.post('/production/iron-after/place', ...screens('create', FLOOR_SCREENS), factory.placeIronAfter);
+router.get('/quality/final-checking/upcoming', ...screens('read', [FLOOR_QC, FINAL_CHECKING]), factory.upcomingFinalChecking);
+router.post('/quality/final-checking', ...screens('create', [FLOOR_QC, FINAL_CHECKING]), factory.recordFinalChecking);
 router.post('/production/bundles/close', ...screens('create', FLOOR_SCREENS), factory.closeBundle);
 router.post('/production/bundles/:bundleId/hem', ...screens('update', FLOOR_SCREENS), factory.hemBundle);
 router.post('/production/bundles/:bundleId/break', ...screens('update', FLOOR_SCREENS), factory.breakBundle);
@@ -298,6 +357,7 @@ router.post('/quality/received-lots', ...guard(FABRIC_QC, 'update'), factory.dec
 router.post('/quality/rolls/pass', ...guard(FABRIC_QC, 'update'), factory.passQcRoll);
 router.post('/quality/rolls/reject', ...guard(FABRIC_QC, 'update'), factory.rejectQcRoll);
 router.post('/quality/roll-rejections', ...guard(FLOOR_QC, 'create'), factory.rejectRoll);
+router.get('/quality/floor/upcoming', ...guard(FLOOR_QC, 'read'), factory.upcomingFloorChecks);
 router.post('/quality/bundle-checks', ...guard(FLOOR_QC, 'create'), factory.bundleCheck);
 router.post('/quality/final-checks', ...guard(FLOOR_QC, 'create'), factory.finalCheck);
 
@@ -323,6 +383,9 @@ router.get(
   factory.listPackingBundles
 );
 router.post('/warehouse/packing-bundles', ...guard(PACKING, 'create'), factory.packingBundle);
+router.get('/warehouse/packing/upcoming', ...guard(PACKING, 'read'), factory.upcomingPacking);
+router.post('/warehouse/packing/pack', ...guard(PACKING, 'create'), factory.packPieces);
+router.post('/warehouse/packing/box', ...guard(PACKING, 'create'), factory.sealBox);
 router.get(
   '/warehouse/boxes',
   auth(),
@@ -335,7 +398,12 @@ router.get(
 );
 router.post('/warehouse/boxes', ...guard(BOXES, 'create'), factory.box);
 router.post('/warehouse/boxes/rack', ...guard(BOXES, 'update'), factory.rackBox);
+router.get('/warehouse/boxes/upcoming', ...guard(BOXES, 'read'), factory.upcomingBoxes);
+router.post('/warehouse/boxes/weigh', ...guard(BOXES, 'create'), factory.weighBox);
+router.post('/warehouse/boxes/store', ...guard(BOXES, 'create'), factory.storeBox);
 router.post('/warehouse/dispatch', ...guard(DISPATCH, 'create'), factory.dispatchBox);
+router.get('/warehouse/dispatch/upcoming', ...guard(DISPATCH, 'read'), factory.upcomingDispatch);
+router.post('/warehouse/dispatch/ship', ...guard(DISPATCH, 'create'), factory.shipBox);
 router.get('/warehouse/boxes/:boxBarcode/trace', ...guard(DISPATCH, 'read'), factory.traceBox);
 
 router.get('/accounts/invoices', ...guard(INVOICES, 'read'), factory.listInvoices);

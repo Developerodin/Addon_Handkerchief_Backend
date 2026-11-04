@@ -12,7 +12,11 @@ const gradeSchema = mongoose.Schema(
 const resultSchema = mongoose.Schema(
   {
     eventId: { type: String, required: true, unique: true },
-    kind: { type: String, enum: ['fabric-sample', 'bundle-check', 'final', 'initial-roll'], required: true },
+    kind: {
+      type: String,
+      enum: ['fabric-sample', 'bundle-check', 'final', 'initial-roll', 'final-qc', 'final-checking'],
+      required: true,
+    },
     lotId: { type: mongoose.SchemaTypes.ObjectId, ref: 'FabricLot' },
     rollBarcode: { type: String, default: '' },
     bundleId: { type: String, default: '' },
@@ -24,6 +28,11 @@ const resultSchema = mongoose.Schema(
     goodQty: { type: Number, default: 0 },
     defectQty: { type: Number, default: 0 },
     m4Qty: { type: Number, default: 0 },
+    rackCode: { type: String, default: '' },
+    grades: {
+      type: [{ code: { type: String, default: '' }, qty: { type: Number, default: 0 }, rackCode: { type: String, default: '' } }],
+      default: [],
+    },
   },
   { timestamps: true }
 );

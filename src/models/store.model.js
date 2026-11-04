@@ -221,7 +221,7 @@ const fabricRollSchema = mongoose.Schema(
     qcStatus: { type: String, enum: ['pending', 'passed', 'rejected', 'held'], default: 'pending' },
     status: {
       type: String,
-      enum: ['received', 'stored', 'qc-passed', 'lot-held', 'issued', 'on-floor', 'returned', 'returned-to-vendor'],
+      enum: ['received', 'stored', 'qc-passed', 'lot-held', 'issued', 'on-floor', 'cut', 'returned', 'returned-to-vendor'],
       default: 'received',
     },
   },

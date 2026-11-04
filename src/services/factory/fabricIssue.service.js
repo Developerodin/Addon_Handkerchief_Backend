@@ -1,10 +1,11 @@
 import httpStatus from 'http-status';
 import mongoose from 'mongoose';
 import ApiError from '../../utils/ApiError.js';
-import { FabricLot, FabricRoll, StockMovement } from '../../models/store.model.js';
+import { FabricLot, FabricRoll, GoodsReceipt, PurchaseOrder, StockMovement } from '../../models/store.model.js';
 import { ProductionOrder, ProductionOrderLog } from '../../models/production.model.js';
 import Product from '../../models/product.model.js';
 import { writeOrderLog } from '../orderLog.service.js';
+import { nextCode } from './ids.js';
 import { issueWholeBalance } from './rollBalance.js';
 import { buildSnapshot, fabricLinesFromProduct, linesForRevision, realFabricBom } from '../production/orderSnapshot.js';
 
@@ -223,6 +224,99 @@ export async function issueFabricRoll(body, user) {
   );
   await startProductionAfterIssue(order);
   return movement;
+}
+
+/**
+ * Writes one issued roll for a released order without a basement scan.
+ * Skips BOM barcode match, rack, and lot QC so floor work can start.
+ * @param {string} orderId
+ * @param {object | null} [user]
+ */
+export async function assumeFabricIssued(orderId, user) {
+  if (!orderId) throw new ApiError(httpStatus.BAD_REQUEST, 'Production order is required');
+  const order = await ProductionOrder.findById(orderId);
+  if (!order) throw new ApiError(httpStatus.NOT_FOUND, 'Production order not found');
+  if (ISSUE_BLOCKED[order.status]) throw new ApiError(httpStatus.BAD_REQUEST, ISSUE_BLOCKED[order.status]);
+
+  const open = await StockMovement.findOne({ kind: 'issue', entityType: 'roll', orderId: order.id }).sort({ createdAt: -1 });
+  if (open) {
+    const returned = await StockMovement.exists({
+      entityType: 'roll',
+      entityId: open.entityId,
+      kind: 'return-to-rack',
+      createdAt: { $gt: open.createdAt },
+    });
+    if (!returned) {
+      return { already: true, rollBarcode: open.entityId, orderId: String(order.id), orderNumber: order.orderNumber || '' };
+    }
+  }
+
+  const line = order.lines?.[0];
+  const bom = line ? await fabricBomForLine(order, line) : [];
+  const fabric = bom[0] || { fabricName: 'Floor test fabric', bomLineId: '', fabricCatalogId: '', metresPerPiece: 0 };
+  const pieces = Math.max(1, Number(line?.quantity) || 60);
+  const metres = Math.max(1, Math.round(pieces * (Number(fabric.metresPerPiece) || 0.05) * 1000) / 1000);
+  const po = await PurchaseOrder.create({
+    number: nextCode('PO'),
+    supplierName: 'Floor test',
+    status: 'Received',
+    lines: [{ lineId: 'L1', fabricName: fabric.fabricName || 'Floor test fabric', quantity: metres }],
+  });
+  const lot = await FabricLot.create({ poId: po.id, status: 'approved', qcStatus: 'passed' });
+  const grn = await GoodsReceipt.create({
+    number: nextCode('GRN'),
+    lotId: lot.id,
+    poId: po.id,
+    netWeight: 10,
+    grossWeight: 10,
+  });
+  const barcode = nextCode('RL');
+  const roll = await FabricRoll.create({
+    barcode,
+    lotId: lot.id,
+    grnId: grn.id,
+    poId: po.id,
+    fabricId: String(fabric.fabricCatalogId || ''),
+    fabricName: fabric.fabricName || 'Floor test fabric',
+    rollCode: barcode,
+    grossWeight: 10,
+    netWeight: 10,
+    qtyMeters: metres,
+    currentGrossWeight: 10,
+    currentNetWeight: 10,
+    currentQtyMeters: metres,
+    scaleWeight: 10,
+    qcStatus: 'passed',
+    status: 'stored',
+  });
+  await issueWholeBalance(
+    roll,
+    {
+      eventId: `assume-${order.id}-${barcode}`,
+      fromLocation: 'floor-test',
+      toLocation: 'floor',
+      orderId: order.id,
+      lineId: line ? String(line.id || line._id) : '',
+      bomLineId: String(fabric.bomLineId || ''),
+      fabricCatalogId: String(fabric.fabricCatalogId || ''),
+      fabricName: fabric.fabricName || roll.fabricName,
+    },
+    user
+  );
+  await writeOrderLog(
+    {
+      action: 'issued',
+      orderId: order.id,
+      entityType: 'roll',
+      entityCode: barcode,
+      fromLocation: 'floor-test',
+      toLocation: 'floor',
+      remarks: 'Treated as issued for floor work',
+    },
+    user
+  );
+  await startProductionAfterIssue(order);
+  return { already: false, rollBarcode: barcode, orderId: String(order.id), orderNumber: order.orderNumber || '' };
 }
 
 /**
