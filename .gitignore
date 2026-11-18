@@ -10,3 +10,6 @@ yarn-error.log
 
 # Code coverage
 coverage
+
+# Local Mongo dumps (may contain prod-like data)
+mongo-dump/

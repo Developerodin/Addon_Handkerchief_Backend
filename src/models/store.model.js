@@ -257,6 +257,8 @@ const stockMovementSchema = mongoose.Schema(
 
 stockMovementSchema.index({ orderId: 1, createdAt: -1 });
 stockMovementSchema.index({ entityType: 1, entityId: 1, createdAt: -1 });
+stockMovementSchema.index({ kind: 1, entityType: 1, orderId: 1 });
+stockMovementSchema.index({ kind: 1, entityType: 1, createdAt: -1 });
 
 const vendorReturnSchema = mongoose.Schema(
   {

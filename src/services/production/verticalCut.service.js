@@ -5,9 +5,11 @@ import { CutPiece, ProductionOrder } from '../../models/production.model.js';
 import { FabricRoll, StockMovement } from '../../models/store.model.js';
 import Machine from '../../models/machine.model.js';
 import Container from '../../models/container.model.js';
-import StorageRack from '../../models/storageRack.model.js';
+import { rackOfType } from './bundleFloor.js';
 import { nextCode } from '../factory/ids.js';
 import { writeOrderLog } from '../orderLog.service.js';
+import { runTransaction, sessionOptions } from '../../utils/mongoTransaction.js';
+import { completedRollsFromLogs } from './floorCompleted.js';
 
 const OPEN = new Set(['released', 'in-progress', 'amended']);
 const ISSUED = new Set(['issued', 'on-floor']);
@@ -157,7 +159,13 @@ export const upcomingCuts = async () => {
     });
     if (results.length >= 200) break;
   }
-  return { results, active, counts: { ...counts, waiting: results.length } };
+  const completed = await completedRollsFromLogs(['vertical-cut']);
+  return {
+    results,
+    active,
+    completed,
+    counts: { ...counts, waiting: results.length, completed: completed.length },
+  };
 };
 
 /**
@@ -186,33 +194,37 @@ export const cutRoll = async (body, _params, user) => {
 
   const count = piecesPerCutOf(order, issue.lineId);
   const lineId = issue.lineId && mongoose.Types.ObjectId.isValid(issue.lineId) ? issue.lineId : null;
-  const pieces = await CutPiece.insertMany(
-    Array.from({ length: count }, () => ({
-      barcode: nextCode('PC'),
-      orderId: order.id,
-      lineId,
-      rollBarcode: roll.barcode,
-      machineBarcode: machine.barcode,
-      status: 'cut',
-      process: 'vertical-cut',
-    }))
-  );
-  roll.status = 'cut';
-  await roll.save();
-  await writeOrderLog(
-    {
-      action: 'vertical-cut',
-      orderId: order.id,
-      entityType: 'roll',
-      entityCode: roll.barcode,
-      quantity: count,
-      fromLocation: machine.barcode,
-      toLocation: 'vertical-cut',
-      remarks: '',
-    },
-    user
-  );
-  return pieces;
+  return runTransaction(async (session) => {
+    const pieces = await CutPiece.insertMany(
+      Array.from({ length: count }, () => ({
+        barcode: nextCode('PC'),
+        orderId: order.id,
+        lineId,
+        rollBarcode: roll.barcode,
+        machineBarcode: machine.barcode,
+        status: 'cut',
+        process: 'vertical-cut',
+      })),
+      sessionOptions(session)
+    );
+    roll.status = 'cut';
+    await roll.save(sessionOptions(session));
+    await writeOrderLog(
+      {
+        action: 'vertical-cut',
+        orderId: order.id,
+        entityType: 'roll',
+        entityCode: roll.barcode,
+        quantity: count,
+        fromLocation: machine.barcode,
+        toLocation: 'vertical-cut',
+        remarks: '',
+      },
+      user,
+      session
+    );
+    return pieces;
+  });
 };
 
 /**
@@ -233,15 +245,7 @@ const piecesContainer = async (scanned) => {
  * Active pieces rack, matched by code or barcode.
  * @param {string} scanned
  */
-const piecesRack = async (scanned) => {
-  const rack = await StorageRack.findOne({
-    status: 'active',
-    $or: [{ code: scanned.toUpperCase() }, { barcode: scanned }, { barcode: scanned.toUpperCase() }],
-  });
-  if (!rack) throw new ApiError(httpStatus.BAD_REQUEST, 'Rack not found');
-  if (rack.stockType !== 'pieces') throw new ApiError(httpStatus.BAD_REQUEST, 'This rack is not for pieces');
-  return rack;
-};
+const piecesRack = (scanned) => rackOfType(scanned, 'pieces', 'This rack is not for pieces');
 
 /**
  * Puts cut pieces into a pieces container and onto a pieces rack.
@@ -263,23 +267,27 @@ export const placePieces = async (body, _params, user) => {
     throw new ApiError(httpStatus.BAD_REQUEST, 'This piece is already on a rack');
   }
   const containerBarcode = container.barcode || container.code;
-  await CutPiece.updateMany(
-    { barcode: { $in: codes } },
-    { status: 'on-rack', process: 'vertical-cut', containerBarcode, rackCode: rack.code }
-  );
-  const orderIds = new Set(pieces.map((piece) => String(piece.orderId)));
-  await writeOrderLog(
-    {
-      action: 'piece-place',
-      orderId: orderIds.size === 1 ? pieces[0].orderId : undefined,
-      entityType: 'roll',
-      entityCode: pieces[0].rollBarcode,
-      quantity: pieces.length,
-      fromLocation: containerBarcode,
-      toLocation: rack.code,
-      remarks: '',
-    },
-    user
-  );
-  return CutPiece.find({ barcode: { $in: codes } });
+  return runTransaction(async (session) => {
+    await CutPiece.updateMany(
+      { barcode: { $in: codes } },
+      { status: 'on-rack', process: 'vertical-cut', containerBarcode, rackCode: rack.code },
+      sessionOptions(session)
+    );
+    const orderIds = new Set(pieces.map((piece) => String(piece.orderId)));
+    await writeOrderLog(
+      {
+        action: 'piece-place',
+        orderId: orderIds.size === 1 ? pieces[0].orderId : undefined,
+        entityType: 'roll',
+        entityCode: pieces[0].rollBarcode,
+        quantity: pieces.length,
+        fromLocation: containerBarcode,
+        toLocation: rack.code,
+        remarks: '',
+      },
+      user,
+      session
+    );
+    return CutPiece.find({ barcode: { $in: codes } }).session(session || undefined);
+  });
 };

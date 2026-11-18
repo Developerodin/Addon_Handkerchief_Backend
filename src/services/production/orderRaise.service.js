@@ -220,7 +220,6 @@ export const releaseDraft = async (orderId, body, user) => {
   if (!order.lines.length) throw new ApiError(httpStatus.BAD_REQUEST, 'Add at least one item');
   const preview = [];
   for (const line of order.lines) {
-    if (!line.revisionId) throw new ApiError(httpStatus.BAD_REQUEST, 'Each item needs a published revision');
     const product = await Product.findById(line.itemId);
     if (!product) throw new ApiError(httpStatus.BAD_REQUEST, 'Item not found');
     const version = await linesForRevision(product, line.revisionId);
@@ -248,7 +247,9 @@ export const releaseDraft = async (orderId, body, user) => {
     const floors = await snapshotFloors({ itemId: line.itemId, productionType: line.productionType });
     if (floors[0]) floors[0].receivedQty = line.quantity;
     line.floors = floors;
-    line.segments = [{ revisionId: line.revisionId, qty: line.quantity, completedQty: 0 }];
+    const segmentRevision = line.revisionId || 'live';
+    line.segments = [{ revisionId: segmentRevision, qty: line.quantity, completedQty: 0 }];
+    if (!line.revisionId) line.revisionId = segmentRevision;
     if (mongoose.Types.ObjectId.isValid(line.revisionId)) {
       const pin = await createPin({
         scopeId: row.scopeId,

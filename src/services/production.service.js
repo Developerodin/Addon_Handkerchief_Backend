@@ -5,6 +5,7 @@ import { CutPiece, FloorCompletion, PieceBundle, ProductionOrder, ThreadUse } fr
 import Product from '../models/product.model.js';
 import { nextCode } from './factory/ids.js';
 import { writeOrderLog } from './orderLog.service.js';
+import { runTransaction, sessionOptions } from '../utils/mongoTransaction.js';
 import { allocateOrderNumber } from './production/orderNumber.js';
 import { createPin } from './versioning/pin.service.js';
 
@@ -16,9 +17,12 @@ const NORMAL_FLOORS = [
   ['Half moon', 'half-moon'],
   ['Vertical hem', 'vertical-hem'],
   ['Bundle', 'single-piece-cutting'],
+  ['Floor checks', 'floor-check'],
   ['Horizontal hem', 'horizontal-hem'],
   ['Thread cut', 'thread-cutting'],
+  ['Final QC', 'final-qc'],
   ['Iron', 'iron'],
+  ['Final checking', 'final-checking'],
 ];
 
 /**
@@ -193,43 +197,46 @@ export const completeStage = async (body, _params, user) => {
     throw new ApiError(httpStatus.BAD_REQUEST, 'This order is not on that floor');
   }
   const operatorId = body.operatorId || (user ? String(user.id || user._id || '') : '');
-  const completion = await FloorCompletion.create({ ...body, operatorId, lineId: body.lineId || null });
-  const step = floors.find((row) => row.floor === body.stage);
-  if (step) step.completedQty += body.qty;
-  const segment = order.segments[order.segments.length - 1];
-  if (segment) segment.completedQty += body.qty;
-  const line = body.lineId ? order.lines.id(body.lineId) : order.lines.length === 1 ? order.lines[0] : null;
-  if (body.lineId && !line) throw new ApiError(httpStatus.BAD_REQUEST, 'Order line not found');
-  if (line) {
-    const lineStep = (line.floors || []).find((row) => row.floor === body.stage);
-    if (lineStep) lineStep.completedQty += body.qty;
-    const lineSegment = line.segments[line.segments.length - 1];
-    if (lineSegment) lineSegment.completedQty += body.qty;
-  }
-  if (order.status === 'released' || order.status === 'amended') order.status = 'in-progress';
-  let toFloor = order.currentFloor || body.stage;
-  if (step && step.completedQty >= order.targetQty) {
-    const index = floors.findIndex((row) => row.floor === body.stage);
-    if (!floors[index + 1]) {
-      order.status = 'closed';
-      toFloor = '';
+  return runTransaction(async (session) => {
+    const [completion] = await FloorCompletion.create([{ ...body, operatorId, lineId: body.lineId || null }], sessionOptions(session));
+    const step = floors.find((row) => row.floor === body.stage);
+    if (step) step.completedQty += body.qty;
+    const segment = order.segments[order.segments.length - 1];
+    if (segment) segment.completedQty += body.qty;
+    const line = body.lineId ? order.lines.id(body.lineId) : order.lines.length === 1 ? order.lines[0] : null;
+    if (body.lineId && !line) throw new ApiError(httpStatus.BAD_REQUEST, 'Order line not found');
+    if (line) {
+      const lineStep = (line.floors || []).find((row) => row.floor === body.stage);
+      if (lineStep) lineStep.completedQty += body.qty;
+      const lineSegment = line.segments[line.segments.length - 1];
+      if (lineSegment) lineSegment.completedQty += body.qty;
     }
-  }
-  await order.save();
-  await writeOrderLog(
-    {
-      action: 'floor-complete',
-      orderId: order.id,
-      entityType: 'order',
-      entityCode: body.stage,
-      quantity: body.qty,
-      fromLocation: body.stage,
-      toLocation: toFloor,
-      remarks: body.remarks || body.machineBarcode || '',
-    },
-    user
-  );
-  return completion;
+    if (order.status === 'released' || order.status === 'amended') order.status = 'in-progress';
+    let toFloor = order.currentFloor || body.stage;
+    if (step && step.completedQty >= order.targetQty) {
+      const index = floors.findIndex((row) => row.floor === body.stage);
+      if (!floors[index + 1]) {
+        order.status = 'closed';
+        toFloor = '';
+      }
+    }
+    await order.save(sessionOptions(session));
+    await writeOrderLog(
+      {
+        action: 'floor-complete',
+        orderId: order.id,
+        entityType: 'order',
+        entityCode: body.stage,
+        quantity: body.qty,
+        fromLocation: body.stage,
+        toLocation: toFloor,
+        remarks: body.remarks || body.machineBarcode || '',
+      },
+      user,
+      session
+    );
+    return completion;
+  });
 };
 
 /**
@@ -253,34 +260,44 @@ export const transferBundle = async (orderId, body, user) => {
   if (!qty || qty < 1 || qty > available) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Transfer quantity is above the finished quantity still on this floor');
   }
-  const last = await PieceBundle.findOne({ orderId: order.id }).sort({ number: -1 });
-  const bundle = await PieceBundle.create({
-    orderId: order.id,
-    lineId: body.lineId || null,
-    number: (last?.number || 0) + 1,
-    qty,
-    closed: true,
-    barcode: nextCode('BD'),
-    fromFloor: step.floor,
-    toFloor: next.floor,
-    status: 'in-transit',
+  return runTransaction(async (session) => {
+    let lastQuery = PieceBundle.findOne({ orderId: order.id }).sort({ number: -1 });
+    if (session) lastQuery = lastQuery.session(session);
+    const last = await lastQuery;
+    const [bundle] = await PieceBundle.create(
+      [
+        {
+          orderId: order.id,
+          lineId: body.lineId || null,
+          number: (last?.number || 0) + 1,
+          qty,
+          closed: true,
+          barcode: nextCode('BD'),
+          fromFloor: step.floor,
+          toFloor: next.floor,
+          status: 'in-transit',
+        },
+      ],
+      sessionOptions(session)
+    );
+    step.transferredQty += qty;
+    await order.save(sessionOptions(session));
+    await writeOrderLog(
+      {
+        action: 'bundle-transfer',
+        orderId: order.id,
+        entityType: 'bundle',
+        entityCode: bundle.barcode,
+        quantity: qty,
+        fromLocation: step.floor,
+        toLocation: next.floor,
+        remarks: body.remarks || '',
+      },
+      user,
+      session
+    );
+    return bundle;
   });
-  step.transferredQty += qty;
-  await order.save();
-  await writeOrderLog(
-    {
-      action: 'bundle-transfer',
-      orderId: order.id,
-      entityType: 'bundle',
-      entityCode: bundle.barcode,
-      quantity: qty,
-      fromLocation: step.floor,
-      toLocation: next.floor,
-      remarks: body.remarks || '',
-    },
-    user
-  );
-  return bundle;
 };
 
 /**
@@ -301,26 +318,29 @@ export const receiveBundle = async (body, _params, user) => {
   if (!order) throw new ApiError(httpStatus.NOT_FOUND, 'Production order not found');
   const step = (order.floors || []).find((row) => row.floor === body.stage);
   if (!step) throw new ApiError(httpStatus.BAD_REQUEST, 'This bundle is not for that floor');
-  step.receivedQty += bundle.qty;
-  bundle.status = 'received';
-  await bundle.save();
-  order.currentFloor = body.stage;
-  if (order.status === 'released') order.status = 'in-progress';
-  await order.save();
-  await writeOrderLog(
-    {
-      action: 'bundle-receive',
-      orderId: order.id,
-      entityType: 'bundle',
-      entityCode: bundle.barcode,
-      quantity: bundle.qty,
-      fromLocation: bundle.fromFloor,
-      toLocation: body.stage,
-      remarks: '',
-    },
-    user
-  );
-  return bundle;
+  return runTransaction(async (session) => {
+    step.receivedQty += bundle.qty;
+    bundle.status = 'received';
+    await bundle.save(sessionOptions(session));
+    order.currentFloor = body.stage;
+    if (order.status === 'released') order.status = 'in-progress';
+    await order.save(sessionOptions(session));
+    await writeOrderLog(
+      {
+        action: 'bundle-receive',
+        orderId: order.id,
+        entityType: 'bundle',
+        entityCode: bundle.barcode,
+        quantity: bundle.qty,
+        fromLocation: bundle.fromFloor,
+        toLocation: body.stage,
+        remarks: '',
+      },
+      user,
+      session
+    );
+    return bundle;
+  });
 };
 
 /**

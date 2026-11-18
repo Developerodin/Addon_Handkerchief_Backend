@@ -34,6 +34,7 @@ const packingBundleSchema = mongoose.Schema(
     boxBarcode: { type: String, default: '' },
     revisionId: { type: String, default: '' },
     onPackingRack: { type: Boolean, default: false },
+    scaleWeight: { type: Number, default: 0, min: 0 },
   },
   { timestamps: true }
 );
@@ -44,13 +45,18 @@ const dispatchBoxSchema = mongoose.Schema(
     eventId: { type: String, unique: true, sparse: true },
     clientOrderId: { type: mongoose.SchemaTypes.ObjectId, ref: 'ClientOrder' },
     productionOrderId: { type: mongoose.SchemaTypes.ObjectId, ref: 'ProductionOrder' },
+    orderNumber: { type: String, default: '' },
     revisionId: { type: String, default: '' },
     packingBundleIds: [{ type: String }],
     pieceQty: { type: Number, default: 0, min: 0 },
     scaleWeight: { type: Number, default: 0 },
     rackCode: { type: String, default: '' },
     vehicleNumber: { type: String, default: '' },
-    status: { type: String, enum: ['open', 'weighed', 'on-rack', 'dispatched'], default: 'open' },
+    status: {
+      type: String,
+      enum: ['open', 'weighed', 'ready-for-dispatch', 'on-rack', 'dispatched'],
+      default: 'open',
+    },
     clientAddress: { type: String, default: '' },
     rollBarcode: { type: String, default: '' },
     poId: { type: String, default: '' },

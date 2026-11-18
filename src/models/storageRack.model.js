@@ -1,21 +1,8 @@
 import mongoose from 'mongoose';
 import { toJSON, paginate } from './plugins/index.js';
 
-export const STOCK_TYPES = [
-  'fabric',
-  'wip-bundle',
-  'finished-carton',
-  'floor-roll',
-  'pieces',
-  'bundles',
-  'waiting-embroidery',
-  'waiting-sticker',
-  'long-alteration',
-  'alteration',
-  'rejection',
-  'packing',
-  'box',
-];
+/** Fabric roll storage only — floor racks use ProductionRack. */
+export const STOCK_TYPES = ['fabric'];
 
 const storageRackSchema = mongoose.Schema(
   {

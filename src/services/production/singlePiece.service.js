@@ -2,9 +2,11 @@ import httpStatus from 'http-status';
 import ApiError from '../../utils/ApiError.js';
 import { CutPiece, PieceBundle, ProductionOrder } from '../../models/production.model.js';
 import Machine from '../../models/machine.model.js';
-import StorageRack from '../../models/storageRack.model.js';
 import { nextCode } from '../factory/ids.js';
+import { rackOfType } from './bundleFloor.js';
 import { writeOrderLog } from '../orderLog.service.js';
+import { runTransaction, sessionOptions } from '../../utils/mongoTransaction.js';
+import { completedBundlesFromLogs } from './floorCompleted.js';
 
 const BUNDLE_SIZE = 60;
 
@@ -14,15 +16,7 @@ const BUNDLE_SIZE = 60;
  * @param {string} stockType
  * @param {string} wrongType
  */
-const rackOf = async (scanned, stockType, wrongType) => {
-  const rack = await StorageRack.findOne({
-    status: 'active',
-    $or: [{ code: String(scanned || '').toUpperCase() }, { barcode: scanned }, { barcode: String(scanned || '').toUpperCase() }],
-  });
-  if (!rack) throw new ApiError(httpStatus.BAD_REQUEST, 'Rack not found');
-  if (rack.stockType !== stockType) throw new ApiError(httpStatus.BAD_REQUEST, wrongType);
-  return rack;
-};
+const rackOf = (scanned, stockType, wrongType) => rackOfType(scanned, stockType, wrongType);
 
 /**
  * Unique scanned piece barcodes.
@@ -54,6 +48,7 @@ const shapeBundle = (bundle, orderNumbers) => ({
   orderNumber: orderNumbers.get(String(bundle.orderId)) || '',
   number: bundle.number,
   qty: bundle.qty,
+  m4Qty: bundle.m4Qty || 0,
   closed: Boolean(bundle.closed),
   rackCode: bundle.rackCode || '',
   checkedGood: Boolean(bundle.checkedGood),
@@ -93,7 +88,7 @@ export const upcomingSinglePiece = async () => {
   const [waiting, active, openBundles, ready] = await Promise.all([
     CutPiece.find(waitingQuery).sort({ updatedAt: -1 }).limit(200).lean(),
     CutPiece.find(activeQuery).sort({ updatedAt: -1 }).limit(200).lean(),
-    PieceBundle.find({ closed: false }).sort({ updatedAt: -1 }).limit(50),
+    PieceBundle.find({ closed: false, qty: { $gt: 0 } }).sort({ updatedAt: -1 }).limit(50),
     PieceBundle.find({ closed: true, barcode: { $ne: '' }, rackCode: '' }).sort({ updatedAt: -1 }).limit(50),
   ]);
   const orderIds = [
@@ -103,16 +98,20 @@ export const upcomingSinglePiece = async () => {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
   const closedToday = await PieceBundle.countDocuments({ closed: true, barcode: { $ne: '' }, updatedAt: { $gte: start } });
+  // Completed = closed bundles placed on a rack (next floor). Piece-cut logs are intermediate, not transfers.
+  const completed = await completedBundlesFromLogs(['bundle-place']);
   return {
     results: waiting.map((row) => shapePiece(row, orderNumbers)),
     active: active.map((row) => shapePiece(row, orderNumbers)),
     openBundles: openBundles.map((row) => shapeBundle(row, orderNumbers)),
     ready: ready.map((row) => shapeBundle(row, orderNumbers)),
+    completed,
     counts: {
       waiting: waiting.length,
       onTable: active.length,
       openQty: openBundles.reduce((sum, row) => sum + (row.qty || 0), 0),
       closedToday,
+      completed: completed.length,
     },
   };
 };
@@ -123,7 +122,7 @@ export const upcomingSinglePiece = async () => {
  * @param {object} entry
  * @param {object | null} user
  */
-const logRows = (rows, entry, user) => {
+const logRows = (rows, entry, user, session = null) => {
   const orderIds = new Set(rows.map((row) => String(row.orderId)));
   return writeOrderLog(
     {
@@ -131,7 +130,8 @@ const logRows = (rows, entry, user) => {
       orderId: orderIds.size === 1 ? rows[0].orderId : undefined,
       quantity: entry.quantity || rows.length,
     },
-    user
+    user,
+    session
   );
 };
 
@@ -160,35 +160,50 @@ export const startSinglePiece = async (body, _params, user) => {
     if (piece.process !== 'vertical-hem') throw new ApiError(httpStatus.BAD_REQUEST, 'This piece is not hemmed');
     if (piece.rackCode !== rack.code) throw new ApiError(httpStatus.BAD_REQUEST, 'This piece is not on that rack');
   }
-  await CutPiece.updateMany({ barcode: { $in: codes } }, { status: 'in-work', machineBarcode: machine.barcode });
-  await logRows(
-    pieces,
-    { action: 'single-piece-start', entityType: 'roll', entityCode: pieces[0].barcode, fromLocation: rack.code, toLocation: machine.barcode, remarks: '' },
-    user
-  );
-  return CutPiece.find({ barcode: { $in: codes } });
+  return runTransaction(async (session) => {
+    await CutPiece.updateMany(
+      { barcode: { $in: codes } },
+      { status: 'in-work', machineBarcode: machine.barcode },
+      sessionOptions(session)
+    );
+    await logRows(
+      pieces,
+      { action: 'single-piece-start', entityType: 'roll', entityCode: pieces[0].barcode, fromLocation: rack.code, toLocation: machine.barcode, remarks: '' },
+      user,
+      session
+    );
+    return CutPiece.find({ barcode: { $in: codes } }).session(session || undefined);
+  });
 };
 
 /**
  * Open bundle for an order, created empty when none exists.
  * @param {string} orderId
  */
-const ensureOpen = async (orderId) => {
-  const open = await PieceBundle.findOne({ orderId, closed: false }).sort({ number: -1 });
+const ensureOpen = async (orderId, session = null) => {
+  let openQuery = PieceBundle.findOne({ orderId, closed: false }).sort({ number: -1 });
+  if (session) openQuery = openQuery.session(session);
+  const open = await openQuery;
   if (open) return open;
-  const last = await PieceBundle.findOne({ orderId }).sort({ number: -1 });
-  return PieceBundle.create({ orderId, number: (last?.number || 0) + 1, qty: 0, closed: false, status: 'open' });
+  let lastQuery = PieceBundle.findOne({ orderId }).sort({ number: -1 });
+  if (session) lastQuery = lastQuery.session(session);
+  const last = await lastQuery;
+  const [created] = await PieceBundle.create(
+    [{ orderId, number: (last?.number || 0) + 1, qty: 0, closed: false, status: 'open' }],
+    sessionOptions(session)
+  );
+  return created;
 };
 
 /**
  * Marks a full bundle closed and gives it a barcode.
  * @param {object} bundle
  */
-const sealBundle = async (bundle) => {
+const sealBundle = async (bundle, session = null) => {
   bundle.closed = true;
   bundle.status = 'closed';
   bundle.barcode = nextCode('BD');
-  await bundle.save();
+  await bundle.save(sessionOptions(session));
   return bundle;
 };
 
@@ -198,44 +213,42 @@ const sealBundle = async (bundle) => {
  * @param {string} orderId
  * @param {number} goodQty
  */
-const pourGood = async (orderId, goodQty) => {
+const pourGood = async (orderId, goodQty, session = null) => {
   const closed = [];
   if (goodQty <= 0) {
-    const open = await PieceBundle.findOne({ orderId, closed: false }).sort({ number: -1 });
+    let openQuery = PieceBundle.findOne({ orderId, closed: false }).sort({ number: -1 });
+    if (session) openQuery = openQuery.session(session);
+    const open = await openQuery;
     return { closed, open, last: open };
   }
-  let bundle = await ensureOpen(orderId);
+  let bundle = await ensureOpen(orderId, session);
   let left = goodQty;
   while (left > 0) {
     const room = BUNDLE_SIZE - bundle.qty;
     if (room <= 0) {
-      await sealBundle(bundle);
+      await sealBundle(bundle, session);
       closed.push(bundle);
-      bundle = await PieceBundle.create({
-        orderId: bundle.orderId,
-        number: bundle.number + 1,
-        qty: 0,
-        closed: false,
-        status: 'open',
-      });
+      const [next] = await PieceBundle.create(
+        [{ orderId: bundle.orderId, number: bundle.number + 1, qty: 0, closed: false, status: 'open' }],
+        sessionOptions(session)
+      );
+      bundle = next;
     }
     const take = Math.min(BUNDLE_SIZE - bundle.qty, left);
     bundle.qty += take;
     left -= take;
     if (bundle.qty >= BUNDLE_SIZE) {
-      await sealBundle(bundle);
+      await sealBundle(bundle, session);
       closed.push(bundle);
-      bundle = left > 0
-        ? await PieceBundle.create({
-            orderId: bundle.orderId,
-            number: bundle.number + 1,
-            qty: 0,
-            closed: false,
-            status: 'open',
-          })
-        : bundle;
+      if (left > 0) {
+        const [next] = await PieceBundle.create(
+          [{ orderId: bundle.orderId, number: bundle.number + 1, qty: 0, closed: false, status: 'open' }],
+          sessionOptions(session)
+        );
+        bundle = next;
+      }
     } else {
-      await bundle.save();
+      await bundle.save(sessionOptions(session));
     }
   }
   const open = bundle.closed ? null : bundle;
@@ -270,38 +283,46 @@ export const cutSinglePiece = async (body, _params, user) => {
       throw new ApiError(httpStatus.BAD_REQUEST, 'This piece is not on the table');
     }
   }
-  const closed = [];
-  const open = [];
-  for (const row of counts) {
-    const piece = byBarcode.get(row.barcode);
-    const poured = await pourGood(String(piece.orderId), row.goodQty);
-    closed.push(...poured.closed);
-    if (poured.open) open.push(poured.open);
-    piece.status = 'bundled';
-    piece.goodQty = row.goodQty;
-    piece.m4Qty = row.m4Qty;
-    piece.bundleId = poured.last ? poured.last.id : piece.bundleId;
-    await piece.save();
-  }
-  await logRows(
-    pieces,
-    {
-      action: 'single-piece-cut',
-      entityType: 'roll',
-      entityCode: pieces[0].barcode,
-      quantity: counts.reduce((sum, row) => sum + row.goodQty, 0),
-      fromLocation: '',
-      toLocation: '',
-      remarks: `m4 ${counts.reduce((sum, row) => sum + row.m4Qty, 0)}`,
-    },
-    user
-  );
-  const orderNumbers = await orderNumbersFor([...new Set(pieces.map((piece) => String(piece.orderId)))]);
-  return {
-    pieces: pieces.map((piece) => shapePiece(piece, orderNumbers)),
-    closed: closed.map((bundle) => shapeBundle(bundle, orderNumbers)),
-    open: open.map((bundle) => shapeBundle(bundle, orderNumbers)),
-  };
+  return runTransaction(async (session) => {
+    const closed = [];
+    const open = [];
+    for (const row of counts) {
+      const piece = byBarcode.get(row.barcode);
+      const poured = await pourGood(String(piece.orderId), row.goodQty, session);
+      closed.push(...poured.closed);
+      if (poured.open) open.push(poured.open);
+      const attach = poured.closed.length ? poured.closed[poured.closed.length - 1] : poured.open;
+      if (attach && row.m4Qty > 0) {
+        attach.m4Qty = (Number(attach.m4Qty) || 0) + row.m4Qty;
+        await attach.save(sessionOptions(session));
+      }
+      piece.status = 'bundled';
+      piece.goodQty = row.goodQty;
+      piece.m4Qty = row.m4Qty;
+      piece.bundleId = attach?._id || attach?.id || poured.last?.id || piece.bundleId;
+      await piece.save(sessionOptions(session));
+    }
+    await logRows(
+      pieces,
+      {
+        action: 'single-piece-cut',
+        entityType: 'roll',
+        entityCode: pieces[0].barcode,
+        quantity: counts.reduce((sum, row) => sum + row.goodQty, 0),
+        fromLocation: '',
+        toLocation: '',
+        remarks: `m4 ${counts.reduce((sum, row) => sum + row.m4Qty, 0)}`,
+      },
+      user,
+      session
+    );
+    const orderNumbers = await orderNumbersFor([...new Set(pieces.map((piece) => String(piece.orderId)))]);
+    return {
+      pieces: pieces.map((piece) => shapePiece(piece, orderNumbers)),
+      closed: closed.map((bundle) => shapeBundle(bundle, orderNumbers)),
+      open: open.map((bundle) => shapeBundle(bundle, orderNumbers)),
+    };
+  });
 };
 
 /**
@@ -315,25 +336,28 @@ export const closeSinglePiece = async (body, _params, user) => {
   if (!orderId) throw new ApiError(httpStatus.BAD_REQUEST, 'Order is required');
   const bundle = await PieceBundle.findOne({ orderId, closed: false }).sort({ number: -1 });
   if (!bundle || bundle.qty < 1) throw new ApiError(httpStatus.BAD_REQUEST, 'An empty bundle cannot be closed');
-  bundle.closed = true;
-  bundle.status = 'closed';
-  bundle.barcode = bundle.barcode || nextCode('BD');
-  await bundle.save();
-  await writeOrderLog(
-    {
-      action: 'single-piece-close',
-      orderId: bundle.orderId,
-      entityType: 'bundle',
-      entityCode: bundle.barcode,
-      quantity: bundle.qty,
-      fromLocation: '',
-      toLocation: '',
-      remarks: '',
-    },
-    user
-  );
-  const orderNumbers = await orderNumbersFor([String(bundle.orderId)]);
-  return shapeBundle(bundle, orderNumbers);
+  return runTransaction(async (session) => {
+    bundle.closed = true;
+    bundle.status = 'closed';
+    bundle.barcode = bundle.barcode || nextCode('BD');
+    await bundle.save(sessionOptions(session));
+    await writeOrderLog(
+      {
+        action: 'single-piece-close',
+        orderId: bundle.orderId,
+        entityType: 'bundle',
+        entityCode: bundle.barcode,
+        quantity: bundle.qty,
+        fromLocation: '',
+        toLocation: '',
+        remarks: '',
+      },
+      user,
+      session
+    );
+    const orderNumbers = await orderNumbersFor([String(bundle.orderId)]);
+    return shapeBundle(bundle, orderNumbers);
+  });
 };
 
 /**
@@ -355,13 +379,26 @@ export const placeSinglePiece = async (body, _params, user) => {
       throw new ApiError(httpStatus.BAD_REQUEST, 'Close the bundle before putting it on a rack');
     }
   }
-  await PieceBundle.updateMany({ barcode: { $in: codes } }, { rackCode: rack.code });
-  await logRows(
-    bundles,
-    { action: 'bundle-place', entityType: 'bundle', entityCode: bundles[0].barcode, fromLocation: '', toLocation: rack.code, remarks: '' },
-    user
-  );
-  const placed = await PieceBundle.find({ barcode: { $in: codes } });
-  const orderNumbers = await orderNumbersFor([...new Set(placed.map((bundle) => String(bundle.orderId)))]);
-  return placed.map((bundle) => shapeBundle(bundle, orderNumbers));
+  return runTransaction(async (session) => {
+    await PieceBundle.updateMany({ barcode: { $in: codes } }, { rackCode: rack.code }, sessionOptions(session));
+    for (const bundle of bundles) {
+      await writeOrderLog(
+        {
+          action: 'bundle-place',
+          orderId: bundle.orderId,
+          entityType: 'bundle',
+          entityCode: bundle.barcode,
+          quantity: bundle.qty || 0,
+          fromLocation: '',
+          toLocation: rack.code,
+          remarks: '',
+        },
+        user,
+        session
+      );
+    }
+    const placed = await PieceBundle.find({ barcode: { $in: codes } }).session(session || undefined);
+    const orderNumbers = await orderNumbersFor([...new Set(placed.map((bundle) => String(bundle.orderId)))]);
+    return placed.map((bundle) => shapeBundle(bundle, orderNumbers));
+  });
 };

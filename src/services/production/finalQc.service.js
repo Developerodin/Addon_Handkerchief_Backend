@@ -2,7 +2,9 @@ import httpStatus from 'http-status';
 import ApiError from '../../utils/ApiError.js';
 import { PieceBundle } from '../../models/production.model.js';
 import { QualityResult } from '../../models/quality.model.js';
+import { runTransaction, sessionOptions } from '../../utils/mongoTransaction.js';
 import { activeRack, logBundles, orderMap, shapeBundle } from './bundleFloor.js';
+import { completedBundlesFromLogs } from './floorCompleted.js';
 
 const GRADES = ['long', 'hemming', 'sporting', 'diving', 'rejection'];
 
@@ -41,10 +43,12 @@ export const upcomingFinalQc = async () => {
     PieceBundle.countDocuments({ process: 'final-qc', updatedAt: { $gte: start } }),
     PieceBundle.countDocuments({ process: 'final-qc', finalGood: { $gt: 0 } }),
   ]);
+  const completed = await completedBundlesFromLogs(['final-qc']);
   return {
     results: waiting.map((row) => shapeBundle(row, orders)),
     active: [],
-    counts: { waiting: waiting.length, onStation: 0, doneToday, onRack: passed },
+    completed,
+    counts: { waiting: waiting.length, onStation: 0, doneToday, onRack: passed, completed: completed.length },
   };
 };
 
@@ -76,21 +80,39 @@ export const recordFinalQc = async (body, _params, user) => {
   }
   const sum = good + grades.reduce((total, grade) => total + grade.qty, 0);
   if (sum !== bundle.qty) throw new ApiError(httpStatus.BAD_REQUEST, 'Final QC counts must sum to the bundle');
-  await QualityResult.create({
-    eventId: `final-qc-${bundle.barcode}`,
-    kind: 'final-qc',
-    bundleId: String(bundle.id),
-    orderId: String(bundle.orderId),
-    goodQty: good,
-    defectQty: sum - good,
-    grades,
-    passed: good > 0,
+  return runTransaction(async (session) => {
+    await QualityResult.create(
+      [
+        {
+          eventId: `final-qc-${bundle.barcode}`,
+          kind: 'final-qc',
+          bundleId: String(bundle.id),
+          orderId: String(bundle.orderId),
+          goodQty: good,
+          defectQty: sum - good,
+          grades,
+          passed: good > 0,
+        },
+      ],
+      sessionOptions(session)
+    );
+    if (good > 0) {
+      bundle.process = 'final-qc';
+      bundle.finalGood = good;
+    } else {
+      bundle.process = 'final-qc-defect';
+      bundle.finalGood = 0;
+      const rejection = grades.find((grade) => grade.code === 'rejection');
+      if (rejection?.rackCode) bundle.rackCode = rejection.rackCode;
+    }
+    await bundle.save(sessionOptions(session));
+    const remarks = good > 0 ? `good ${good}` : 'all defect';
+    await logBundles(
+      [bundle],
+      { action: 'final-qc', fromLocation: bundle.rackCode, toLocation: bundle.rackCode, remarks },
+      user,
+      session
+    );
+    return bundle;
   });
-  if (good > 0) {
-    bundle.process = 'final-qc';
-    bundle.finalGood = good;
-    await bundle.save();
-  }
-  await logBundles([bundle], { action: 'final-qc', fromLocation: bundle.rackCode, toLocation: bundle.rackCode, remarks: `good ${good}` }, user);
-  return bundle;
 };

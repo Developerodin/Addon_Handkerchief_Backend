@@ -7,6 +7,7 @@ import Product from '../../models/product.model.js';
 import { writeOrderLog } from '../orderLog.service.js';
 import { nextCode } from './ids.js';
 import { issueWholeBalance } from './rollBalance.js';
+import { runTransaction, sessionOptions } from '../../utils/mongoTransaction.js';
 import { buildSnapshot, fabricLinesFromProduct, linesForRevision, realFabricBom } from '../production/orderSnapshot.js';
 
 const OFF_RACK = new Set(['', 'floor', 'vendor', 'dispatched']);
@@ -134,10 +135,10 @@ const ISSUE_BLOCKED = {
  * The first issued roll starts production. Later rolls leave the status alone.
  * @param {object} order
  */
-async function startProductionAfterIssue(order) {
+async function startProductionAfterIssue(order, session) {
   if (order.status !== 'released') return;
   order.status = 'in-progress';
-  await order.save();
+  await order.save(sessionOptions(session));
 }
 
 /**
@@ -196,34 +197,38 @@ export async function issueFabricRoll(body, user) {
     }
   }
 
-  const movement = await issueWholeBalance(
-    roll,
-    {
-      eventId: body.eventId,
-      fromLocation,
-      toLocation: 'floor',
-      orderId: order.id,
-      lineId: line ? String(line.id || line._id) : '',
-      bomLineId: fabric ? String(fabric.bomLineId || body.bomLineId || '') : '',
-      fabricCatalogId: fabric ? String(fabric.fabricCatalogId || '') : String(roll.fabricId || ''),
-      fabricName: fabric?.fabricName || roll.fabricName || '',
-    },
-    user
-  );
-  await writeOrderLog(
-    {
-      action: 'issued',
-      orderId: order.id,
-      entityType: 'roll',
-      entityCode: roll.barcode,
-      fromLocation,
-      toLocation: 'floor',
-      remarks: line ? issueRemarks(line, fabric) : '',
-    },
-    user
-  );
-  await startProductionAfterIssue(order);
-  return movement;
+  return runTransaction(async (session) => {
+    const movement = await issueWholeBalance(
+      roll,
+      {
+        eventId: body.eventId,
+        fromLocation,
+        toLocation: 'floor',
+        orderId: order.id,
+        lineId: line ? String(line.id || line._id) : '',
+        bomLineId: fabric ? String(fabric.bomLineId || body.bomLineId || '') : '',
+        fabricCatalogId: fabric ? String(fabric.fabricCatalogId || '') : String(roll.fabricId || ''),
+        fabricName: fabric?.fabricName || roll.fabricName || '',
+      },
+      user,
+      session
+    );
+    await writeOrderLog(
+      {
+        action: 'issued',
+        orderId: order.id,
+        entityType: 'roll',
+        entityCode: roll.barcode,
+        fromLocation,
+        toLocation: 'floor',
+        remarks: line ? issueRemarks(line, fabric) : '',
+      },
+      user,
+      session
+    );
+    await startProductionAfterIssue(order, session);
+    return movement;
+  });
 }
 
 /**
@@ -377,6 +382,17 @@ export async function listFabricIssues(query) {
  * @param {{ orderId: string, lineId: string }} params
  * @param {object | null} [user]
  */
+/**
+ * Moves a released order to in-progress once every article is marked fabric-complete.
+ * @param {object} order
+ */
+async function maybeStartProduction(order, session) {
+  const lines = order.lines || [];
+  if (!lines.length) return;
+  if (!lines.every((line) => line.fabricIssueStatus === 'completed')) return;
+  await startProductionAfterIssue(order, session);
+}
+
 export async function completeFabricIssue(body, params, user) {
   if (body.status !== 'completed') throw new ApiError(httpStatus.BAD_REQUEST, 'Only completed is accepted');
   if (!mongoose.Types.ObjectId.isValid(params.orderId) || !mongoose.Types.ObjectId.isValid(params.lineId)) {
@@ -387,21 +403,62 @@ export async function completeFabricIssue(body, params, user) {
   const line = order.lines.id(params.lineId);
   if (!line) throw new ApiError(httpStatus.NOT_FOUND, 'Article not found on this order');
   if (line.fabricIssueStatus !== 'completed') {
-    line.fabricIssueStatus = 'completed';
-    await order.save();
-    const article = [line.factoryCode, line.articleName].map((part) => String(part || '').trim()).filter(Boolean).join(' ');
-    await writeOrderLog(
-      {
-        action: 'fabric-issue-complete',
-        orderId: order.id,
-        entityType: 'order',
-        entityCode: article || String(line.id),
-        remarks: article ? `Fabric issue complete for ${article}` : 'Fabric issue complete',
-      },
-      user
-    );
+    await runTransaction(async (session) => {
+      line.fabricIssueStatus = 'completed';
+      await order.save(sessionOptions(session));
+      const article = [line.factoryCode, line.articleName].map((part) => String(part || '').trim()).filter(Boolean).join(' ');
+      await writeOrderLog(
+        {
+          action: 'fabric-issue-complete',
+          orderId: order.id,
+          entityType: 'order',
+          entityCode: article || String(line.id),
+          remarks: article ? `Fabric issue complete for ${article}` : 'Fabric issue complete',
+        },
+        user,
+        session
+      );
+      await maybeStartProduction(order, session);
+    });
   }
   return order.toJSON();
+}
+
+/**
+ * Skips roll scans and marks fabric issue complete on every article. For temporary floor bypass only.
+ * @param {string} orderId
+ * @param {object | null} [user]
+ */
+export async function bypassFabricIssueForOrder(orderId, user) {
+  if (!orderId) throw new ApiError(httpStatus.BAD_REQUEST, 'Production order is required');
+  const order = await ProductionOrder.findById(orderId);
+  if (!order) throw new ApiError(httpStatus.NOT_FOUND, 'Production order not found');
+  if (ISSUE_BLOCKED[order.status]) throw new ApiError(httpStatus.BAD_REQUEST, ISSUE_BLOCKED[order.status]);
+  const lines = order.lines || [];
+  if (!lines.length) throw new ApiError(httpStatus.BAD_REQUEST, 'This order has no articles');
+  let changed = 0;
+  for (const line of lines) {
+    if (line.fabricIssueStatus === 'completed') continue;
+    line.fabricIssueStatus = 'completed';
+    changed += 1;
+  }
+  if (!changed && lines.every((line) => line.fabricIssueStatus === 'completed')) {
+    await maybeStartProduction(order);
+    return { already: true, orderId: String(order.id), orderNumber: order.orderNumber || '' };
+  }
+  await order.save();
+  await writeOrderLog(
+    {
+      action: 'fabric-issue-bypass',
+      orderId: order.id,
+      entityType: 'order',
+      entityCode: order.orderNumber || String(order.id),
+      remarks: 'Fabric issue bypassed without roll scans',
+    },
+    user
+  );
+  await maybeStartProduction(order);
+  return { already: false, orderId: String(order.id), orderNumber: order.orderNumber || '', articles: changed };
 }
 
 /**
@@ -477,18 +534,18 @@ export async function attachFabricIssue(docs) {
       ])
     : [];
   const byId = new Map(grouped.map((row) => [String(row._id), row]));
-  const results = [];
-  for (const doc of docs) {
-    const json = doc.toJSON();
-    for (const line of json.lines || []) {
-      if (!line.snapshot?.fabricBom) continue;
-      line.snapshot.fabricBom = realFabricBom(line.snapshot.fabricBom);
-    }
-    const pinned = requiredMetres(json);
-    const metres = pinned > 0 ? pinned : await liveMetres(doc);
-    const hit = byId.get(String(json.id)) || { rolls: 0, weightKg: 0 };
-    json.fabricIssue = fabricIssueSummary(json, hit, metres);
-    results.push(json);
-  }
-  return results;
+  return Promise.all(
+    docs.map(async (doc) => {
+      const json = doc.toJSON();
+      for (const line of json.lines || []) {
+        if (!line.snapshot?.fabricBom) continue;
+        line.snapshot.fabricBom = realFabricBom(line.snapshot.fabricBom);
+      }
+      const pinned = requiredMetres(json);
+      const metres = pinned > 0 ? pinned : await liveMetres(doc);
+      const hit = byId.get(String(json.id)) || { rolls: 0, weightKg: 0 };
+      json.fabricIssue = fabricIssueSummary(json, hit, metres);
+      return json;
+    })
+  );
 }

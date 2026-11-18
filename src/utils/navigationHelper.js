@@ -43,10 +43,9 @@ export const FACTORY_SCREEN_KEYS = [
   'Quality / Final QC',
   'Quality / Final checking',
   'Quality / Grades',
-  'Warehouse / Packing',
-  'Warehouse / Boxes',
-  'Warehouse / Orders',
-  'Warehouse / Dispatch',
+  'Packing & Dispatch / Packing',
+  'Packing & Dispatch / Boxes',
+  'Packing & Dispatch / Dispatch',
   'Accounts / Invoices',
   'Reports',
   'Fabric / Purchase orders',
@@ -107,6 +106,9 @@ const FABRIC_FROM_LEGACY = {
   'Fabric / Fabric analytics': 'Reports',
   'Fabric / Consumption report': 'Reports',
   'Fabric / Suppliers report': 'Reports',
+  'Packing & Dispatch / Packing': 'Warehouse / Packing',
+  'Packing & Dispatch / Boxes': 'Warehouse / Boxes',
+  'Packing & Dispatch / Dispatch': 'Warehouse / Dispatch',
 };
 
 export const CATALOG_MODULES = [

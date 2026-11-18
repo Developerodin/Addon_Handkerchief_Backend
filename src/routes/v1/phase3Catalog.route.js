@@ -7,6 +7,7 @@ import {
   machineController,
   workerController,
   storageRackController,
+  productionRackController,
   containerController,
   labelTemplateController,
   deviceRegistryController,
@@ -49,6 +50,14 @@ bind('/storage-racks', 'Catalog.Storage Racks', {
   update: v.updateStorageRack,
   delete: v.deleteStorageRack,
 }, storageRackController, 'rackId');
+
+bind('/production-racks', 'Catalog.Storage Racks', {
+  create: v.createProductionRack,
+  list: v.getProductionRacks,
+  get: v.getProductionRack,
+  update: v.updateProductionRack,
+  delete: v.deleteProductionRack,
+}, productionRackController, 'rackId');
 
 bind('/containers', 'Catalog.Containers Master', {
   create: v.createContainer,

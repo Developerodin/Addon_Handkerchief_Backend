@@ -23,7 +23,7 @@ export const accessPreset = (name) => {
     store: {
       'Store / Receipt': write,
       'Store / Racks and issue': write,
-      'Warehouse / Boxes': read,
+      'Packing & Dispatch / Boxes': read,
     },
     qc: {
       'Quality / Fabric QC': write,
@@ -40,11 +40,11 @@ export const accessPreset = (name) => {
       'Production / Floor': scan,
     },
     packing: {
-      'Warehouse / Packing': write,
+      'Packing & Dispatch / Packing': write,
     },
     dispatch: {
-      'Warehouse / Boxes': write,
-      'Warehouse / Dispatch': write,
+      'Packing & Dispatch / Boxes': write,
+      'Packing & Dispatch / Dispatch': write,
     },
     management: {
       Reports: read,

@@ -6,6 +6,7 @@ import {
   machineService,
   workerService,
   storageRackService,
+  productionRackService,
   containerService,
   labelTemplateService,
   deviceRegistryService,
@@ -37,7 +38,17 @@ const makeHandlers = (service, idParam) => ({
 
 export const machineController = makeHandlers(machineService, 'machineId');
 export const workerController = makeHandlers(workerService, 'workerId');
-export const storageRackController = makeHandlers(storageRackService, 'rackId');
+
+const fabricRackList = catchAsync(async (req, res) => {
+  const filter = pick(req.query, ['code', 'name', 'status']);
+  filter.stockType = 'fabric';
+  const options = pick(req.query, ['sortBy', 'limit', 'page']);
+  res.send(await storageRackService.query(filter, options, req.query.search));
+});
+
+const storageRackBase = makeHandlers(storageRackService, 'rackId');
+export const storageRackController = { ...storageRackBase, list: fabricRackList };
+export const productionRackController = makeHandlers(productionRackService, 'rackId');
 export const containerController = makeHandlers(containerService, 'containerId');
 export const labelTemplateController = makeHandlers(labelTemplateService, 'templateId');
 export const deviceRegistryController = makeHandlers(deviceRegistryService, 'deviceId');

@@ -187,7 +187,7 @@ const FEATURES = [
   ['Workers', 'Skills and shift', 'Skills and shift assignment.'],
   ['Workers', 'Excel import', 'Import workers from Excel by ID or employee code.'],
   ['Workers', 'Excel export', 'Export workers to Excel.'],
-  ['Storage racks', 'Create', 'Create a rack at /catalog/storage-racks/add.'],
+  ['Production racks', 'Create', 'Create a floor rack at /catalog/production-racks/add (fabric rolls use Store → Fabric storage).'],
   ['Storage racks', 'Edit', 'Edit a rack.'],
   ['Storage racks', 'Delete', 'Delete a rack.'],
   ['Storage racks', 'Location and stock type', 'Location and the stock type the rack holds.'],

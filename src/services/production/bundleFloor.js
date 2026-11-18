@@ -1,8 +1,9 @@
 import httpStatus from 'http-status';
 import ApiError from '../../utils/ApiError.js';
 import { PieceBundle, ProductionOrder } from '../../models/production.model.js';
+import { completedBundlesFromLogs } from './floorCompleted.js';
 import Machine from '../../models/machine.model.js';
-import StorageRack from '../../models/storageRack.model.js';
+import ProductionRack from '../../models/productionRack.model.js';
 import Container from '../../models/container.model.js';
 import { writeOrderLog } from '../orderLog.service.js';
 
@@ -17,7 +18,7 @@ export const bundleCodes = (barcodes) => [...new Set((barcodes || []).map((code)
  * @param {string} scanned
  */
 export const activeRack = async (scanned) => {
-  const rack = await StorageRack.findOne({
+  const rack = await ProductionRack.findOne({
     status: 'active',
     $or: [{ code: String(scanned || '').toUpperCase() }, { barcode: scanned }, { barcode: String(scanned || '').toUpperCase() }],
   });
@@ -84,6 +85,16 @@ export const orderMap = async (rows) => {
 };
 
 /**
+ * Pieces that may move to the next floor after final QC (defects stay behind).
+ * @param {{ finalGood?: number, qty?: number }} bundle
+ */
+export const transferableQty = (bundle) => {
+  const good = Number(bundle?.finalGood) || 0;
+  if (good > 0) return good;
+  return Number(bundle?.qty) || 0;
+};
+
+/**
  * @param {object} row
  * @param {Map<string, object>} orders
  */
@@ -96,6 +107,7 @@ export const shapeBundle = (row, orders) => {
     orderNumber: order?.orderNumber || '',
     productionType: order?.productionType || '',
     qty: row.qty || 0,
+    m4Qty: row.m4Qty || 0,
     finalGood: row.finalGood || 0,
     packedQty: row.packedQty || 0,
     rackCode: row.rackCode || '',
@@ -112,8 +124,9 @@ export const shapeBundle = (row, orders) => {
  * @param {object[]} bundles
  * @param {object} entry
  * @param {object | null} user
+ * @param {import('mongoose').ClientSession | null} [session]
  */
-export const logBundles = (bundles, entry, user) => {
+export const logBundles = (bundles, entry, user, session = null) => {
   const orderIds = new Set(bundles.map((bundle) => String(bundle.orderId)));
   return writeOrderLog(
     {
@@ -121,9 +134,10 @@ export const logBundles = (bundles, entry, user) => {
       orderId: orderIds.size === 1 ? bundles[0].orderId : undefined,
       entityType: 'bundle',
       entityCode: bundles[0].barcode,
-      quantity: bundles.reduce((sum, bundle) => sum + (bundle.qty || 0), 0),
+      quantity: bundles.reduce((sum, bundle) => sum + transferableQty(bundle), 0),
     },
-    user
+    user,
+    session
   );
 };
 
@@ -133,8 +147,9 @@ export const logBundles = (bundles, entry, user) => {
  * @param {object} activeQuery
  * @param {object} doneQuery
  * @param {object} rackQuery
+ * @param {string[]} [doneActions]
  */
-export const boardFor = async (waitingQuery, activeQuery, doneQuery, rackQuery) => {
+export const boardFor = async (waitingQuery, activeQuery, doneQuery, rackQuery, doneActions = []) => {
   const [waiting, active] = await Promise.all([
     PieceBundle.find(waitingQuery).sort({ updatedAt: -1 }).limit(200),
     PieceBundle.find(activeQuery).sort({ updatedAt: -1 }).limit(200),
@@ -142,13 +157,21 @@ export const boardFor = async (waitingQuery, activeQuery, doneQuery, rackQuery) 
   const orders = await orderMap([...waiting, ...active]);
   const start = new Date();
   start.setHours(0, 0, 0, 0);
-  const [doneToday, onRack] = await Promise.all([
+  const [doneToday, onRack, completed] = await Promise.all([
     PieceBundle.countDocuments({ ...doneQuery, updatedAt: { $gte: start } }),
     PieceBundle.countDocuments(rackQuery),
+    completedBundlesFromLogs(doneActions),
   ]);
   return {
     results: waiting.map((row) => shapeBundle(row, orders)),
     active: active.map((row) => shapeBundle(row, orders)),
-    counts: { waiting: waiting.length, onStation: active.length, doneToday, onRack },
+    completed,
+    counts: {
+      waiting: waiting.length,
+      onStation: active.length,
+      doneToday,
+      onRack,
+      completed: completed.length,
+    },
   };
 };

@@ -2,7 +2,10 @@ import httpStatus from 'http-status';
 import ApiError from '../../utils/ApiError.js';
 import { PieceBundle } from '../../models/production.model.js';
 import { QualityResult } from '../../models/quality.model.js';
+import { runTransaction, sessionOptions } from '../../utils/mongoTransaction.js';
 import { logBundles, orderMap, rackOfType, shapeBundle } from './bundleFloor.js';
+import { completedBundlesFromLogs } from './floorCompleted.js';
+import { syncOrderFromFinalChecking } from './orderProgress.js';
 
 /**
  * Bundle ids already sent toward packing.
@@ -32,10 +35,12 @@ export const upcomingFinalChecking = async () => {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
   const doneToday = await QualityResult.countDocuments({ kind: 'final-checking', createdAt: { $gte: start } });
+  const completed = await completedBundlesFromLogs(['final-checking']);
   return {
     results: waiting.map((row) => shapeBundle(row, orders)),
     active: [],
-    counts: { waiting: waiting.length, onStation: 0, doneToday, onRack: waiting.length },
+    completed,
+    counts: { waiting: waiting.length, onStation: 0, doneToday, onRack: waiting.length, completed: completed.length },
   };
 };
 
@@ -74,19 +79,33 @@ export const recordFinalChecking = async (body, _params, user) => {
     const rack = await rackOfType(body.rackCode, 'packing', 'This rack is not for packing');
     rackCode = rack.code;
   }
-  await QualityResult.create({
-    eventId: `final-checking-${bundle.barcode}`,
-    kind: 'final-checking',
-    bundleId: String(bundle.id),
-    orderId: String(bundle.orderId),
-    goodQty: good,
-    defectQty: defect,
-    rackCode,
-    passed: good > 0,
+  const saved = await runTransaction(async (session) => {
+    await QualityResult.create(
+      [
+        {
+          eventId: `final-checking-${bundle.barcode}`,
+          kind: 'final-checking',
+          bundleId: String(bundle.id),
+          orderId: String(bundle.orderId),
+          goodQty: good,
+          defectQty: defect,
+          rackCode,
+          passed: good > 0,
+        },
+      ],
+      sessionOptions(session)
+    );
+    bundle.finalGood = good;
+    bundle.rackCode = rackCode;
+    await bundle.save(sessionOptions(session));
+    await logBundles(
+      [bundle],
+      { action: 'final-checking', fromLocation: '', toLocation: rackCode, remarks: `defect ${defect}` },
+      user,
+      session
+    );
+    return bundle;
   });
-  bundle.finalGood = good;
-  bundle.rackCode = rackCode;
-  await bundle.save();
-  await logBundles([bundle], { action: 'final-checking', fromLocation: '', toLocation: rackCode, remarks: `defect ${defect}` }, user);
-  return bundle;
+  await syncOrderFromFinalChecking(saved.orderId, user);
+  return saved;
 };

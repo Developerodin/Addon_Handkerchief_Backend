@@ -26,6 +26,8 @@ const resultSchema = mongoose.Schema(
     gradeCode: { type: String, default: '' },
     passed: { type: Boolean, default: true },
     goodQty: { type: Number, default: 0 },
+    /** M2 (manufacturing grade) at floor bundle check; legacy rows may only have defectQty. */
+    m2Qty: { type: Number, default: 0 },
     defectQty: { type: Number, default: 0 },
     m4Qty: { type: Number, default: 0 },
     rackCode: { type: String, default: '' },

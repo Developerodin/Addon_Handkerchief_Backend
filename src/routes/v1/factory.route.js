@@ -52,10 +52,10 @@ const FLOOR_QC = 'Quality / Floor checks';
 const FINAL_QC = 'Quality / Final QC';
 const FINAL_CHECKING = 'Quality / Final checking';
 const GRADES = 'Quality / Grades';
-const PACKING = 'Warehouse / Packing';
-const BOXES = 'Warehouse / Boxes';
+const PACKING = 'Packing & Dispatch / Packing';
+const BOXES = 'Packing & Dispatch / Boxes';
 const CLIENT_ORDERS = 'Warehouse / Orders';
-const DISPATCH = 'Warehouse / Dispatch';
+const DISPATCH = 'Packing & Dispatch / Dispatch';
 const INVOICES = 'Accounts / Invoices';
 const REPORTS = 'Reports';
 const F_PO = 'Fabric / Purchase orders';
@@ -293,6 +293,17 @@ router.patch(
   ]),
   factory.completeFabricIssue
 );
+router.post(
+  '/production/orders/:orderId/fabric-issue-bypass',
+  auth(),
+  requireAnyCrudPath([
+    { path: RACKS, action: 'update' },
+    { path: F_ISSUE, action: 'update' },
+    { path: RACKS, action: 'create' },
+    { path: F_ISSUE, action: 'create' },
+  ]),
+  factory.bypassFabricIssue
+);
 router.post('/production/orders/:orderId/transfer', ...screens('create', FLOOR_SCREENS), factory.transferBundle);
 router.post('/production/completions', ...screens('create', FLOOR_SCREENS), factory.completeStage);
 router.post('/production/bundles/receive', ...screens('create', FLOOR_SCREENS), factory.receiveBundle);
@@ -386,6 +397,9 @@ router.post('/warehouse/packing-bundles', ...guard(PACKING, 'create'), factory.p
 router.get('/warehouse/packing/upcoming', ...guard(PACKING, 'read'), factory.upcomingPacking);
 router.post('/warehouse/packing/pack', ...guard(PACKING, 'create'), factory.packPieces);
 router.post('/warehouse/packing/box', ...guard(PACKING, 'create'), factory.sealBox);
+router.post('/warehouse/packing/box/open', ...guard(PACKING, 'create'), factory.openDispatchBox);
+router.post('/warehouse/packing/box/add', ...guard(PACKING, 'create'), factory.addPackingBundleToBox);
+router.get('/warehouse/packing/box/lookup', ...guard(PACKING, 'read'), factory.lookupOpenDispatchBox);
 router.get(
   '/warehouse/boxes',
   auth(),
@@ -400,9 +414,12 @@ router.post('/warehouse/boxes', ...guard(BOXES, 'create'), factory.box);
 router.post('/warehouse/boxes/rack', ...guard(BOXES, 'update'), factory.rackBox);
 router.get('/warehouse/boxes/upcoming', ...guard(BOXES, 'read'), factory.upcomingBoxes);
 router.post('/warehouse/boxes/weigh', ...guard(BOXES, 'create'), factory.weighBox);
+router.post('/warehouse/boxes/ready', ...guard(BOXES, 'update'), factory.markBoxReadyForDispatch);
 router.post('/warehouse/boxes/store', ...guard(BOXES, 'create'), factory.storeBox);
 router.post('/warehouse/dispatch', ...guard(DISPATCH, 'create'), factory.dispatchBox);
 router.get('/warehouse/dispatch/upcoming', ...guard(DISPATCH, 'read'), factory.upcomingDispatch);
+router.get('/warehouse/dispatch/orders', ...guard(DISPATCH, 'read'), factory.dispatchOrdersSummary);
+router.get('/warehouse/dispatch/order/:orderId', ...guard(DISPATCH, 'read'), factory.dispatchPackForOrder);
 router.post('/warehouse/dispatch/ship', ...guard(DISPATCH, 'create'), factory.shipBox);
 router.get('/warehouse/boxes/:boxBarcode/trace', ...guard(DISPATCH, 'read'), factory.traceBox);
 

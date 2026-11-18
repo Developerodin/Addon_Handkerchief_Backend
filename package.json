@@ -11,7 +11,7 @@
   "scripts": {
     "start": "pm2 start ecosystem.config.json --no-daemon",
     "dev": "cross-env NODE_ENV=development nodemon --exec \"node --disable-warning=DEP0170\" src/index.js",
-    "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest -i --colors --verbose --detectOpenHandles",
+    "test": "cross-env NODE_OPTIONS=--experimental-vm-modules node --stack-size=65536 ./node_modules/jest/bin/jest.js -i --colors --verbose --detectOpenHandles",
     "test:catalog": "cross-env NODE_OPTIONS=--experimental-vm-modules jest -i --colors --verbose --detectOpenHandles tests/integration/catalog.test.js",
     "test:fabric": "cross-env NODE_OPTIONS=--experimental-vm-modules jest -i --colors --verbose --detectOpenHandles tests/integration/fabric.test.js",
     "smoke:catalog": "node scripts/smoke-test-catalog.js",
@@ -32,7 +32,23 @@
     "seed:catalog-checkpoints": "node scripts/seedCatalogCheckpoints.js",
     "seed:production-checkpoints": "node scripts/seedProductionCheckpoints.js",
     "fix:fabric-names": "node scripts/fix-fabric-catalog-names.js",
-    "racks:force-delete": "node --disable-warning=DEP0170 scripts/force-delete-racks.js"
+    "racks:force-delete": "node --disable-warning=DEP0170 scripts/force-delete-racks.js",
+    "orders:clear": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/clear-production-orders.js",
+    "seed:vertical-cut-demo": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/seed-vertical-cut-demo.js",
+    "seed:production-catalog-demo": "node --disable-warning=DEP0170 scripts/seedProductionCatalogDemo.js",
+    "patch:qc-processes": "node --disable-warning=DEP0170 scripts/patchQcProcessMasters.js",
+    "seed:demo-plain-hanky-order": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/seed-demo-plain-hanky-order.js",
+    "seed:demo-embroidery-order": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/seed-demo-embroidery-order.js",
+    "seed:demo-embroidery-floral-order": "cross-env NODE_ENV=development DEMO_FACTORY_CODE=HK-D-EMB-02 DEMO_ORDER_NOTE=\"Demo Embroidery Floral\" DEMO_BUYER=\"Demo buyer\" DEMO_ORDER_QTY=120 node --disable-warning=DEP0170 scripts/seed-demo-embroidery-order.js",
+    "audit:demo-order-flow": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/audit-demo-order-flow.js",
+    "racks:ensure-production": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/migrate-production-racks.js",
+    "e2e:multi-order-flow": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/e2e-multi-order-flow.js",
+    "e2e:dispatch-orders": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/e2e-ten-orders-dispatch.js",
+    "e2e:ten-floor-dispatch": "cross-env NODE_ENV=development E2E_FLOOR_LOOP=10 E2E_FLOOR_ONLY=1 node --disable-warning=DEP0170 scripts/e2e-multi-order-flow.js",
+    "e2e:production-gate": "npm run e2e:multi-order-flow && npm run e2e:dispatch-orders",
+    "e2e:production-gate-full": "npm run e2e:multi-order-flow && npm run e2e:ten-floor-dispatch && npm run e2e:dispatch-orders",
+    "rollback:bundle-iron": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/rollback-bundle-for-iron.js",
+    "rollback:bundle-emb-thread": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/rollback-bundle-for-embroidery-thread.js"
   },
   "keywords": [
     "node",

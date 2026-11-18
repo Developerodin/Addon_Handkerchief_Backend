@@ -1,19 +1,22 @@
 import httpStatus from 'http-status';
 import ApiError from '../../utils/ApiError.js';
 import { PieceBundle, ThreadUse } from '../../models/production.model.js';
+import { runTransaction, sessionOptions } from '../../utils/mongoTransaction.js';
 import { activeMachine, boardFor, bundleCodes, loadBundles, logBundles, rackOfType } from './bundleFloor.js';
 
 /**
  * Bundles of one process on a rack, and the same process already on a machine.
  * @param {object} waitingQuery
  * @param {string} doneProcess
+ * @param {string[]} [legacyDoneActions]
  */
-export const stationBoard = (waitingQuery, doneProcess) =>
+export const stationBoard = (waitingQuery, doneProcess, legacyDoneActions = []) =>
   boardFor(
     { ...waitingQuery, rackCode: { $nin: ['', null] } },
     { ...waitingQuery, rackCode: { $in: ['', null] }, machineBarcode: { $nin: ['', null] } },
     { process: doneProcess },
-    { process: doneProcess, rackCode: { $nin: ['', null] } }
+    { process: doneProcess, rackCode: { $nin: ['', null] } },
+    [`${doneProcess}-done`, ...legacyDoneActions]
   );
 
 /**
@@ -42,9 +45,15 @@ export const startOnMachine = async ({ body, user, accept, action, missingMachin
   const rack = await rackOfType(rackCode, 'bundles', 'This rack is not for bundles');
   const bundles = await loadBundles(codes);
   for (const bundle of bundles) accept(bundle, rack.code);
-  await PieceBundle.updateMany({ barcode: { $in: codes } }, { rackCode: '', machineBarcode: machine.barcode });
-  await logBundles(bundles, { action, fromLocation: rack.code, toLocation: machine.barcode, remarks: '' }, user);
-  return PieceBundle.find({ barcode: { $in: codes } });
+  return runTransaction(async (session) => {
+    await PieceBundle.updateMany(
+      { barcode: { $in: codes } },
+      { rackCode: '', machineBarcode: machine.barcode },
+      sessionOptions(session)
+    );
+    await logBundles(bundles, { action, fromLocation: rack.code, toLocation: machine.barcode, remarks: '' }, user, session);
+    return PieceBundle.find({ barcode: { $in: codes } }).session(session || undefined);
+  });
 };
 
 /**
@@ -60,18 +69,25 @@ export const placeOnRack = async ({ body, user, accept, nextProcess, action, thr
   const rack = await rackOfType(rackCode, 'bundles', 'This rack is not for bundles');
   const bundles = await loadBundles(codes);
   for (const bundle of bundles) accept(bundle);
-  if (threadRole) {
-    const orderIds = [...new Set(bundles.map((bundle) => String(bundle.orderId)))];
-    await ThreadUse.create(
-      orderIds.map((orderId) => ({
-        orderId,
-        machineBarcode: bundles.find((bundle) => String(bundle.orderId) === orderId)?.machineBarcode || '',
-        materialRole: threadRole,
-        quantity: used,
-      }))
+  return runTransaction(async (session) => {
+    if (threadRole) {
+      const orderIds = [...new Set(bundles.map((bundle) => String(bundle.orderId)))];
+      await ThreadUse.create(
+        orderIds.map((orderId) => ({
+          orderId,
+          machineBarcode: bundles.find((bundle) => String(bundle.orderId) === orderId)?.machineBarcode || '',
+          materialRole: threadRole,
+          quantity: used,
+        })),
+        sessionOptions(session)
+      );
+    }
+    await PieceBundle.updateMany(
+      { barcode: { $in: codes } },
+      { process: nextProcess, rackCode: rack.code, machineBarcode: '', containerBarcode: '' },
+      sessionOptions(session)
     );
-  }
-  await PieceBundle.updateMany({ barcode: { $in: codes } }, { process: nextProcess, rackCode: rack.code });
-  await logBundles(bundles, { action, fromLocation: '', toLocation: rack.code, remarks: threadRole ? String(used) : '' }, user);
-  return PieceBundle.find({ barcode: { $in: codes } });
+    await logBundles(bundles, { action, fromLocation: '', toLocation: rack.code, remarks: threadRole ? String(used) : '' }, user, session);
+    return PieceBundle.find({ barcode: { $in: codes } }).session(session || undefined);
+  });
 };

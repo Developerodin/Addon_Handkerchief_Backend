@@ -31,6 +31,7 @@ import * as orderViews from '../services/production/orderViews.service.js';
 import * as quality from '../services/quality.service.js';
 import * as warehouse from '../services/warehouse.service.js';
 import * as packingFloor from '../services/warehouse/packingFloor.service.js';
+import * as orderDispatch from '../services/warehouse/orderDispatch.js';
 import * as invoice from '../services/invoice.service.js';
 import * as reports from '../services/reports.service.js';
 import * as lists from '../services/factoryLists.service.js';
@@ -157,7 +158,10 @@ export const rackBox = send(warehouse.rackBox);
 export const dispatchBox = send(warehouse.dispatchBox);
 export const packPieces = send(packingFloor.packPieces, httpStatus.CREATED);
 export const sealBox = send(packingFloor.sealBox, httpStatus.CREATED);
+export const openDispatchBox = send(packingFloor.openBox, httpStatus.CREATED);
+export const addPackingBundleToBox = send(packingFloor.addBundleToBox);
 export const weighBox = send(packingFloor.weighBox);
+export const markBoxReadyForDispatch = send(packingFloor.markBoxReady);
 export const storeBox = send(packingFloor.storeBox);
 export const shipBox = send(packingFloor.shipBox);
 export const traceBox = send((_body, params) => warehouse.traceBox(params.boxBarcode));
@@ -184,8 +188,11 @@ export const upcomingSinglePiece = sendQuery(() => singlePiece.upcomingSinglePie
 export const upcomingHorizontalHem = sendQuery(() => horizontalHem.upcomingHorizontalHem());
 export const upcomingThreadCut = sendQuery(() => threadCut.upcomingThreadCut());
 export const upcomingPacking = sendQuery(() => packingFloor.upcomingPacking());
+export const lookupOpenDispatchBox = sendQuery((query) => packingFloor.lookupOpenBox(query));
 export const upcomingBoxes = sendQuery(() => packingFloor.upcomingBoxes());
 export const upcomingDispatch = sendQuery(() => packingFloor.upcomingDispatch());
+export const dispatchOrdersSummary = sendQuery((query) => orderDispatch.dispatchOrdersSummary(query));
+export const dispatchPackForOrder = sendQuery((_q, params) => orderDispatch.dispatchPackForOrder(params.orderId));
 export const upcomingFinalQc = sendQuery(() => finalQc.upcomingFinalQc());
 export const upcomingToGround = sendQuery(() => toGround.upcomingToGround());
 export const upcomingIron = sendQuery(() => iron.upcomingIron());
@@ -219,6 +226,10 @@ export const storageReport = sendQuery(() => rackSlots.storageReport());
 export const listFabricIssues = sendQuery((query) => fabricIssue.listFabricIssues(query));
 export const listFabricReturns = sendQuery((query) => fabricReturn.listFabricReturns(query));
 export const completeFabricIssue = send((body, params, user) => fabricIssue.completeFabricIssue(body, params, user));
+export const bypassFabricIssue = send(
+  (_body, params, user) => fabricIssue.bypassFabricIssueForOrder(params.orderId, user),
+  httpStatus.OK
+);
 export const listOrderLogs = sendQuery((query) => lists.listOrderLogs(query));
 export const listOrderLogsForOrder = sendQuery((query, params) =>
   lists.listOrderLogs({ ...query, orderId: params.orderId })

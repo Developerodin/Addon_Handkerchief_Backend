@@ -21,6 +21,7 @@ import FabricMeasurement from './fabricMeasurement.model.js';
 import Machine from './machine.model.js';
 import Worker from './worker.model.js';
 import StorageRack from './storageRack.model.js';
+import ProductionRack from './productionRack.model.js';
 import Container from './container.model.js';
 import LabelTemplate from './labelTemplate.model.js';
 import DeviceRegistry from './deviceRegistry.model.js';
@@ -64,6 +65,7 @@ export {
   Machine,
   Worker,
   StorageRack,
+  ProductionRack,
   Container,
   LabelTemplate,
   DeviceRegistry,

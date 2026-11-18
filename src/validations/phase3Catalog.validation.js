@@ -2,6 +2,7 @@ import Joi from 'joi';
 import { objectId } from './custom.validation.js';
 import { PROCESS_DEPARTMENTS, PROCESS_MACHINE_TYPES } from '../models/process.model.js';
 import { STOCK_TYPES } from '../models/storageRack.model.js';
+import { PRODUCTION_STOCK_TYPES } from '../models/productionRack.model.js';
 import { CONTAINER_TYPES } from '../models/container.model.js';
 import { LABEL_TYPES } from '../models/labelTemplate.model.js';
 import { DEVICE_TYPES } from '../models/deviceRegistry.model.js';
@@ -112,7 +113,7 @@ export const createStorageRack = {
     name: Joi.string().required(),
     floor: Joi.string().allow(''),
     zone: Joi.string().allow(''),
-    stockType: Joi.string().valid(...STOCK_TYPES),
+    stockType: Joi.string().valid(...STOCK_TYPES).default('fabric'),
     capacity: Joi.number().min(0),
     barcode: Joi.string().allow(''),
     status: Joi.string().valid('active', 'inactive'),
@@ -125,6 +126,46 @@ export const getStorageRacks = {
     search: Joi.string(), sortBy: Joi.string(), limit: Joi.number().integer(), page: Joi.number().integer(),
   }),
 };
+
+export const createProductionRack = {
+  body: Joi.object().keys({
+    code: Joi.string().required(),
+    name: Joi.string().required(),
+    floor: Joi.string().allow(''),
+    zone: Joi.string().allow(''),
+    stockType: Joi.string().valid(...PRODUCTION_STOCK_TYPES),
+    capacity: Joi.number().min(0),
+    barcode: Joi.string().allow(''),
+    status: Joi.string().valid('active', 'inactive'),
+  }),
+};
+
+export const getProductionRacks = {
+  query: Joi.object().keys({
+    code: Joi.string(), name: Joi.string(), stockType: Joi.string(), status: Joi.string(),
+    search: Joi.string(), sortBy: Joi.string(), limit: Joi.number().integer(), page: Joi.number().integer(),
+  }),
+};
+
+export const getProductionRack = { params: Joi.object().keys({ rackId: Joi.string().custom(objectId) }) };
+
+export const updateProductionRack = {
+  params: Joi.object().keys({ rackId: Joi.string().custom(objectId) }),
+  body: Joi.object()
+    .keys({
+      code: Joi.string(),
+      name: Joi.string(),
+      floor: Joi.string().allow(''),
+      zone: Joi.string().allow(''),
+      stockType: Joi.string().valid(...PRODUCTION_STOCK_TYPES),
+      capacity: Joi.number().min(0),
+      barcode: Joi.string().allow(''),
+      status: Joi.string().valid('active', 'inactive'),
+    })
+    .min(1),
+};
+
+export const deleteProductionRack = { params: Joi.object().keys({ rackId: Joi.string().custom(objectId) }) };
 
 export const getStorageRack = { params: Joi.object().keys({ rackId: Joi.string().custom(objectId) }) };
 

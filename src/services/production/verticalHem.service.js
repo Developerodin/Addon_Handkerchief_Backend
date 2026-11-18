@@ -2,9 +2,12 @@ import httpStatus from 'http-status';
 import ApiError from '../../utils/ApiError.js';
 import { CutPiece, ProductionOrder, ThreadUse } from '../../models/production.model.js';
 import Machine from '../../models/machine.model.js';
-import StorageRack from '../../models/storageRack.model.js';
 import RawMaterial from '../../models/rawMaterial.model.js';
-import { writeOrderLog } from '../orderLog.service.js';
+import { rackOfType } from './bundleFloor.js';
+import { runTransaction, sessionOptions } from '../../utils/mongoTransaction.js';
+import { logPieces } from './pieceLog.js';
+import { txnEntityUpdate } from './floorTxn.js';
+import { completedPiecesFromLogs } from './floorCompleted.js';
 
 /**
  * Piece is still the half-moon piece, not a later process.
@@ -16,15 +19,7 @@ const fromHalfMoon = (piece) => piece.process === 'half-moon';
  * Active pieces rack, matched by code or barcode.
  * @param {string} scanned
  */
-const piecesRack = async (scanned) => {
-  const rack = await StorageRack.findOne({
-    status: 'active',
-    $or: [{ code: scanned.toUpperCase() }, { barcode: scanned }, { barcode: scanned.toUpperCase() }],
-  });
-  if (!rack) throw new ApiError(httpStatus.BAD_REQUEST, 'Rack not found');
-  if (rack.stockType !== 'pieces') throw new ApiError(httpStatus.BAD_REQUEST, 'This rack is not for pieces');
-  return rack;
-};
+const piecesRack = (scanned) => rackOfType(scanned, 'pieces', 'This rack is not for pieces');
 
 /**
  * Unique scanned piece barcodes.
@@ -113,31 +108,13 @@ export const upcomingVerticalHem = async () => {
     CutPiece.countDocuments({ process: 'vertical-hem', updatedAt: { $gte: start } }),
     CutPiece.countDocuments({ process: 'vertical-hem', status: 'on-rack' }),
   ]);
+  const completed = await completedPiecesFromLogs(['vertical-hem-done']);
   return {
     results: waiting.map((row) => shapePiece(row, orders, names)),
     active: active.map((row) => shapePiece(row, orders, names)),
-    counts: { waiting: waiting.length, onTable: active.length, doneToday, onRack },
+    completed,
+    counts: { waiting: waiting.length, onTable: active.length, doneToday, onRack, completed: completed.length },
   };
-};
-
-/**
- * One order log when every piece belongs to that order.
- * @param {object[]} pieces
- * @param {object} entry
- * @param {object | null} user
- */
-const logPieces = (pieces, entry, user) => {
-  const orderIds = new Set(pieces.map((piece) => String(piece.orderId)));
-  return writeOrderLog(
-    {
-      ...entry,
-      orderId: orderIds.size === 1 ? pieces[0].orderId : undefined,
-      entityType: 'roll',
-      entityCode: pieces[0].barcode,
-      quantity: pieces.length,
-    },
-    user
-  );
 };
 
 /**
@@ -167,13 +144,14 @@ export const startVerticalHem = async (body, _params, user) => {
     if (!fromHalfMoon(piece)) throw new ApiError(httpStatus.BAD_REQUEST, 'This piece is not half mooned');
     if (piece.rackCode !== rack.code) throw new ApiError(httpStatus.BAD_REQUEST, 'This piece is not on that rack');
   }
-  await CutPiece.updateMany({ barcode: { $in: codes } }, { status: 'in-work', machineBarcode: machine.barcode });
-  await logPieces(
-    pieces,
-    { action: 'vertical-hem-start', fromLocation: rack.code, toLocation: machine.barcode, remarks: '' },
-    user
-  );
-  return CutPiece.find({ barcode: { $in: codes } });
+  return txnEntityUpdate({
+    Model: CutPiece,
+    filter: { barcode: { $in: codes } },
+    update: { status: 'in-work', machineBarcode: machine.barcode },
+    afterUpdate: (session) =>
+      logPieces(pieces, { action: 'vertical-hem-start', fromLocation: rack.code, toLocation: machine.barcode, remarks: '' }, user, session),
+    load: (session) => CutPiece.find({ barcode: { $in: codes } }).session(session || undefined),
+  });
 };
 
 /**
@@ -211,18 +189,22 @@ export const placeVerticalHem = async (body, _params, user) => {
     if (piece.status !== 'in-work') throw new ApiError(httpStatus.BAD_REQUEST, 'This piece is not on the machine');
   }
   const orderIds = [...new Set(pieces.map((piece) => String(piece.orderId)))];
-  await ThreadUse.create(
-    orderIds.map((orderId) => ({
-      orderId,
-      machineBarcode: pieces.find((piece) => String(piece.orderId) === orderId)?.machineBarcode || '',
-      materialRole: 'sewing-thread',
-      quantity: used,
-    }))
-  );
-  await CutPiece.updateMany(
-    { barcode: { $in: codes } },
-    { process: 'vertical-hem', status: 'on-rack', rackCode: rack.code }
-  );
-  await logPieces(pieces, { action: 'vertical-hem-done', fromLocation: '', toLocation: rack.code, remarks: '' }, user);
-  return CutPiece.find({ barcode: { $in: codes } });
+  return runTransaction(async (session) => {
+    await ThreadUse.create(
+      orderIds.map((orderId) => ({
+        orderId,
+        machineBarcode: pieces.find((piece) => String(piece.orderId) === orderId)?.machineBarcode || '',
+        materialRole: 'sewing-thread',
+        quantity: used,
+      })),
+      sessionOptions(session)
+    );
+    await CutPiece.updateMany(
+      { barcode: { $in: codes } },
+      { process: 'vertical-hem', status: 'on-rack', rackCode: rack.code },
+      sessionOptions(session)
+    );
+    await logPieces(pieces, { action: 'vertical-hem-done', fromLocation: '', toLocation: rack.code, remarks: '' }, user, session);
+    return CutPiece.find({ barcode: { $in: codes } }).session(session || undefined);
+  });
 };

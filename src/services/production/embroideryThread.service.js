@@ -7,7 +7,7 @@ const waiting = { closed: true, process: 'embroidery' };
 /**
  * Embroidered bundles on a rack, waiting for thread cutting.
  */
-export const upcomingEmbroideryThread = () => stationBoard(waiting, 'embroidery-thread-cut');
+export const upcomingEmbroideryThread = () => stationBoard(waiting, 'embroidery-thread-cut', ['embroidery-thread-done']);
 
 /**
  * @param {object} bundle
@@ -44,4 +44,4 @@ const acceptPlace = (bundle) => {
  * @param {object | null} [user]
  */
 export const placeEmbroideryThread = (body, _params, user) =>
-  placeOnRack({ body, user, accept: acceptPlace, nextProcess: 'embroidery-thread-cut', action: 'embroidery-thread-done' });
+  placeOnRack({ body, user, accept: acceptPlace, nextProcess: 'embroidery-thread-cut', action: 'embroidery-thread-cut-done' });

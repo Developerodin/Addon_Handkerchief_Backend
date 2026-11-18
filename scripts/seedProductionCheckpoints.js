@@ -25,7 +25,9 @@ const FEATURES = [
   ['Orders', 'Edit', 'Edit a draft, or save changes on a released order, at /production/orders/[id]/edit.'],
   ['Orders', 'Delete draft', 'Delete a draft that has not been released.'],
   ['Orders', 'Release', 'Release pins the published revision. The preview shows the lines before the order leaves draft.'],
-  ['Orders', 'View', 'Open an order: lines, pinned fabric, floors, and segments.'],
+  ['Orders', 'View', 'Open an order: stats (production vs factory dispatch), lines, pinned fabric, bundle labels, floor progress (scan logs), packing bundles, dispatch boxes, segments.'],
+  ['Orders', 'Factory dispatch column', 'List shows dispatched pcs and Not shipped / Partial / Fully shipped; closed orders can show Awaiting dispatch.'],
+  ['Orders', 'Packing and dispatch in drawer', 'View order includes packing PB table, dispatch boxes (pipeline, rack, shipped), and links to Packing & Dispatch screens.'],
   ['Orders', 'Logs', 'Open who did what on the order.'],
   ['Orders', 'Hold and resume', 'Put a released or in-progress order on hold, then take it off hold.'],
   ['Orders', 'Amend revision', 'Move unfinished quantity on a line onto a different published revision.'],
@@ -35,6 +37,11 @@ const FEATURES = [
   ['Orders', 'Article view', 'Article view tab: one row per article line across orders.'],
   ['Orders', 'Fabric estimation', 'Fabric estimation tab: metres the open orders still need.'],
   ['Orders', 'Upcoming floors', 'Upcoming view: which floor each open order is heading to.'],
+  ['Fabric issue', 'Issue queue', 'At /store/issue, open orders waiting for fabric. Article lines show metres needed and issue progress.'],
+  ['Fabric issue', 'Scan roll to order', 'Issue a stored roll from rack to the selected order line (BOM line). Roll must be on an active fabric rack.'],
+  ['Fabric issue', 'Mark line complete', 'Per-article fabric issue status moves to completed when enough metres are issued.'],
+  ['Fabric issue', 'All issued', 'When every line is complete, order fabric issue is all-issued and vertical cutting can start.'],
+  ['Fabric issue', 'Bypass for demo', 'Optional bypass marks fabric issued without stock movement (dev/demo only).'],
   ['Vertical cutting', 'Upcoming rolls', 'Issued rolls waiting to be cut at /production/floor/vertical-cutting.'],
   ['Vertical cutting', 'Scan roll', 'Open a job by scanning the roll barcode or roll code. The roll must be issued to an open order.'],
   ['Vertical cutting', 'Cut', 'Cut the roll into the planned piece count. Each piece gets its own barcode.'],
@@ -61,7 +68,7 @@ const FEATURES = [
   ['Single piece cutting', 'Print label', 'Print the bundle barcode label.'],
   ['Single piece cutting', 'Place on rack', 'Put the closed bundle on a bundles rack.'],
   ['Floor checks', 'Upcoming bundles', 'Bundles on a rack waiting for a floor check at /quality/floor.'],
-  ['Floor checks', 'Bundle check', 'Save good, defect, and M4 quantities for one bundle.'],
+  ['Floor checks', 'Bundle check', 'Save good, M2, and M4 quantities for one bundle.'],
   ['Floor checks', 'Final good quantity', 'Save the final good quantity against the order.'],
   ['Floor checks', 'Reject roll', 'Send a rejected roll back onto a rack.'],
   ['Horizontal hemming', 'Upcoming bundles', 'Checked bundles waiting at /production/floor/horizontal-hem.'],
@@ -77,7 +84,7 @@ const FEATURES = [
   ['Final QC', 'Scan bundle', 'Open a bundle by scanning its barcode.'],
   ['Final QC', 'Grade counts', 'Save good, long, hemming, sporting, diving, and rejection. The counts must sum to the bundle quantity.'],
   ['Final QC', 'Grade racks', 'Each grade can go to its own rack.'],
-  ['Move to ground', 'Upcoming bundles', 'Good bundles waiting on a rack at /production/floor/to-ground.'],
+  ['Ironing', 'Upcoming bundles', 'Good bundles on a rack after final QC at /production/floor/iron.'],
   ['Move to ground', 'Scan bundle', 'Open a bundle that is ready for the ground floor.'],
   ['Move to ground', 'Place in container', 'Put the bundle into a bundle container. No machine start.'],
   ['Ironing', 'Upcoming bundles', 'Bundles already in a container, at /production/floor/iron.'],
@@ -107,7 +114,24 @@ const FEATURES = [
   ['Final checking', 'Upcoming bundles', 'Bundles waiting for final checking at /quality/final-checking.'],
   ['Final checking', 'Scan bundle', 'Open a bundle by scanning its barcode.'],
   ['Final checking', 'Good and defect', 'Good and defect must sum to the final-good quantity from final QC.'],
-  ['Final checking', 'Packing rack', 'Put the checked bundle on a packing rack.'],
+  ['Final checking', 'Packing rack', 'Put the checked bundle on a packing rack (packing warehouse rack).'],
+  ['Final checking', 'Order closes on good qty', 'When good pcs at final checking meet target, order status becomes Production complete (dispatch is separate).'],
+  ['Packing', 'Upcoming on rack', 'At /warehouse/packing — production bundles on packing rack and by-order summary (on rack, packed, into box).'],
+  ['Packing', 'Scan production bundle', 'Scan BD barcode to open packing; create packing bundle (PB) with label preview.'],
+  ['Packing', 'Print packing bundle label', 'Print PB barcode label after pack.'],
+  ['Packing', 'Into box tab', 'Scan box then PB barcodes; box takes order number on first PB; mixed-order box rejected.'],
+  ['Packing', 'Packing alone path', 'Operators reach packing only from Packing & Dispatch → Packing (not under Production sidebar).'],
+  ['Boxes', 'Open boxes list', 'At /warehouse/boxes — boxes in pipeline with PB count and order number.'],
+  ['Boxes', 'Weigh box', 'Record scale weight on the box.'],
+  ['Boxes', 'Mark ready for dispatch', 'After weigh and PBs inside, mark box ready and print box label with order no.'],
+  ['Boxes', 'Rack for dispatch', 'Place ready box on dispatch floor rack (on-rack status).'],
+  ['Dispatch', 'Production order list', 'At /warehouse/dispatch — orders with boxes in pipeline or on rack; pagination.'],
+  ['Dispatch', 'Boxes on rack by order', 'Rack groups show order number, buyer, box barcodes waiting to ship.'],
+  ['Dispatch', 'View order drawer', 'View: on-rack, pipeline, and shipped boxes; Activity tab with order logs.'],
+  ['Dispatch', 'Print challan and note', 'Print or download dispatch challan / note like GRN layout (per order).'],
+  ['Dispatch', 'Ship box', 'Scan ship with vehicle number; updates box to dispatched and rolls up order dispatchedQty.'],
+  ['Dispatch', 'Partial and full dispatch', 'Order dispatchStatus partial until target pcs shipped, then complete; production list shows factory dispatch.'],
+  ['Dispatch', 'Scan box barcode', 'Quick open box from barcode field on dispatch page.'],
 ];
 
 const CHECKPOINTS = FEATURES.map(([screen, feature, detail]) => row(screen, feature, detail));
@@ -119,7 +143,8 @@ const CHECKPOINTS = FEATURES.map(([screen, feature, detail]) => row(screen, feat
 const mongoUrl = () => {
   const fromArg = process.argv[2];
   if (fromArg && !fromArg.startsWith('-')) return fromArg;
-  return process.env.MONGODB_URL || '';
+  if (process.env.MONGODB_URL) return process.env.MONGODB_URL;
+  return 'mongodb://127.0.0.1:27017/handkerchief';
 };
 
 /**
@@ -216,11 +241,17 @@ const sortOrderAfterNeighbor = async (moduleDoc, featureIndex) => {
 const ensureItems = async (moduleDoc) => {
   const created = [];
   const skipped = [];
+  const updated = [];
 
   for (let index = 0; index < CHECKPOINTS.length; index += 1) {
     const checkpoint = CHECKPOINTS[index];
     const existing = await CheckpointItem.findOne({ moduleId: moduleDoc._id, title: checkpoint.title });
     if (existing) {
+      if (existing.description !== checkpoint.description) {
+        existing.description = checkpoint.description;
+        await existing.save();
+        updated.push(checkpoint.title);
+      }
       skipped.push(checkpoint.title);
       continue;
     }
@@ -234,7 +265,21 @@ const ensureItems = async (moduleDoc) => {
     created.push(checkpoint.title);
   }
 
-  return { created, skipped };
+  return { created, skipped, updated };
+};
+
+/**
+ * Align sortOrder with FEATURES list so the sheet reads top-to-bottom from order creation through dispatch.
+ * @param {import('mongoose').Document} moduleDoc
+ */
+const syncSortOrder = async (moduleDoc) => {
+  for (let index = 0; index < CHECKPOINTS.length; index += 1) {
+    const checkpoint = CHECKPOINTS[index];
+    await CheckpointItem.updateOne(
+      { moduleId: moduleDoc._id, title: checkpoint.title },
+      { sortOrder: (index + 1) * 10 }
+    );
+  }
 };
 
 /**
@@ -244,12 +289,18 @@ const seedProductionCheckpoints = async () => {
   const safeUrl = await connect();
   const owner = await findOwner();
   const { doc, created: moduleCreated } = await ensureModule(owner);
-  const { created, skipped } = await ensureItems(doc);
+  const { created, skipped, updated } = await ensureItems(doc);
+  await syncSortOrder(doc);
 
   console.log(`Database: ${safeUrl}`);
   console.log(`Module: ${MODULE_NAME} (${moduleCreated ? 'created' : 'already present'})`);
+  console.log(`Checklist rows in seed: ${CHECKPOINTS.length}`);
   console.log(`Created ${created.length}:`);
   created.forEach((title) => console.log(`  + ${title}`));
+  if (updated.length) {
+    console.log(`Updated descriptions ${updated.length}:`);
+    updated.forEach((title) => console.log(`  ~ ${title}`));
+  }
   console.log(`Already present ${skipped.length}`);
 
   await mongoose.disconnect();

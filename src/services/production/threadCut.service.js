@@ -2,22 +2,15 @@ import httpStatus from 'http-status';
 import ApiError from '../../utils/ApiError.js';
 import { PieceBundle, ProductionOrder } from '../../models/production.model.js';
 import Machine from '../../models/machine.model.js';
-import StorageRack from '../../models/storageRack.model.js';
-import { writeOrderLog } from '../orderLog.service.js';
+import { logBundles, rackOfType } from './bundleFloor.js';
+import { txnEntityUpdate } from './floorTxn.js';
+import { completedBundlesFromLogs } from './floorCompleted.js';
 
 /**
  * Active bundles rack, matched by code or barcode.
  * @param {string} scanned
  */
-const bundlesRack = async (scanned) => {
-  const rack = await StorageRack.findOne({
-    status: 'active',
-    $or: [{ code: String(scanned || '').toUpperCase() }, { barcode: scanned }, { barcode: String(scanned || '').toUpperCase() }],
-  });
-  if (!rack) throw new ApiError(httpStatus.BAD_REQUEST, 'Rack not found');
-  if (rack.stockType !== 'bundles') throw new ApiError(httpStatus.BAD_REQUEST, 'This rack is not for bundles');
-  return rack;
-};
+const bundlesRack = (scanned) => rackOfType(scanned, 'bundles', 'This rack is not for bundles');
 
 /**
  * Unique scanned bundle barcodes.
@@ -46,8 +39,10 @@ const shapeBundle = (row, orderNumbers) => ({
  * @param {object[]} rows
  */
 const orderNumbersFor = async (rows) => {
-  const orders = await ProductionOrder.find({ _id: { $in: [...new Set(rows.map((row) => String(row.orderId)))] } }).select('orderNumber');
-  return new Map(orders.map((order) => [String(order.id), order.orderNumber || '']));
+  const orders = await ProductionOrder.find({ _id: { $in: [...new Set(rows.map((row) => String(row.orderId)))] } })
+    .select('orderNumber')
+    .lean();
+  return new Map(orders.map((order) => [String(order._id), order.orderNumber || '']));
 };
 
 /**
@@ -57,8 +52,8 @@ export const upcomingThreadCut = async () => {
   const waitingQuery = { closed: true, process: 'horizontal-hem', rackCode: { $nin: ['', null] } };
   const activeQuery = { closed: true, process: 'horizontal-hem', rackCode: { $in: ['', null] }, machineBarcode: { $nin: ['', null] } };
   const [waiting, active] = await Promise.all([
-    PieceBundle.find(waitingQuery).sort({ updatedAt: -1 }).limit(200),
-    PieceBundle.find(activeQuery).sort({ updatedAt: -1 }).limit(200),
+    PieceBundle.find(waitingQuery).sort({ updatedAt: -1 }).limit(200).lean(),
+    PieceBundle.find(activeQuery).sort({ updatedAt: -1 }).limit(200).lean(),
   ]);
   const orderNumbers = await orderNumbersFor([...waiting, ...active]);
   const start = new Date();
@@ -67,31 +62,13 @@ export const upcomingThreadCut = async () => {
     PieceBundle.countDocuments({ process: 'thread-cut', updatedAt: { $gte: start } }),
     PieceBundle.countDocuments({ process: 'thread-cut', rackCode: { $nin: ['', null] } }),
   ]);
+  const completed = await completedBundlesFromLogs(['thread-cut-done']);
   return {
     results: waiting.map((row) => shapeBundle(row, orderNumbers)),
     active: active.map((row) => shapeBundle(row, orderNumbers)),
-    counts: { waiting: waiting.length, onTable: active.length, doneToday, onRack },
+    completed,
+    counts: { waiting: waiting.length, onTable: active.length, doneToday, onRack, completed: completed.length },
   };
-};
-
-/**
- * One order log when every bundle belongs to that order.
- * @param {object[]} bundles
- * @param {object} entry
- * @param {object | null} user
- */
-const logBundles = (bundles, entry, user) => {
-  const orderIds = new Set(bundles.map((bundle) => String(bundle.orderId)));
-  return writeOrderLog(
-    {
-      ...entry,
-      orderId: orderIds.size === 1 ? bundles[0].orderId : undefined,
-      entityType: 'bundle',
-      entityCode: bundles[0].barcode,
-      quantity: bundles.reduce((sum, bundle) => sum + (bundle.qty || 0), 0),
-    },
-    user
-  );
 };
 
 /**
@@ -120,9 +97,14 @@ export const startThreadCut = async (body, _params, user) => {
     if (!bundle.rackCode) throw new ApiError(httpStatus.BAD_REQUEST, 'This bundle is not on a rack');
     if (bundle.rackCode !== rack.code) throw new ApiError(httpStatus.BAD_REQUEST, 'This bundle is not on that rack');
   }
-  await PieceBundle.updateMany({ barcode: { $in: codes } }, { rackCode: '', machineBarcode: machine.barcode });
-  await logBundles(bundles, { action: 'thread-cut-start', fromLocation: rack.code, toLocation: machine.barcode, remarks: '' }, user);
-  return PieceBundle.find({ barcode: { $in: codes } });
+  return txnEntityUpdate({
+    Model: PieceBundle,
+    filter: { barcode: { $in: codes } },
+    update: { rackCode: '', machineBarcode: machine.barcode },
+    afterUpdate: (session) =>
+      logBundles(bundles, { action: 'thread-cut-start', fromLocation: rack.code, toLocation: machine.barcode, remarks: '' }, user, session),
+    load: (session) => PieceBundle.find({ barcode: { $in: codes } }).session(session || undefined),
+  });
 };
 
 /**
@@ -145,7 +127,12 @@ export const placeThreadCut = async (body, _params, user) => {
       throw new ApiError(httpStatus.BAD_REQUEST, 'This bundle is not on the table');
     }
   }
-  await PieceBundle.updateMany({ barcode: { $in: codes } }, { process: 'thread-cut', rackCode: rack.code });
-  await logBundles(bundles, { action: 'thread-cut-done', fromLocation: '', toLocation: rack.code, remarks: '' }, user);
-  return PieceBundle.find({ barcode: { $in: codes } });
+  return txnEntityUpdate({
+    Model: PieceBundle,
+    filter: { barcode: { $in: codes } },
+    update: { process: 'thread-cut', rackCode: rack.code },
+    afterUpdate: (session) =>
+      logBundles(bundles, { action: 'thread-cut-done', fromLocation: '', toLocation: rack.code, remarks: '' }, user, session),
+    load: (session) => PieceBundle.find({ barcode: { $in: codes } }).session(session || undefined),
+  });
 };

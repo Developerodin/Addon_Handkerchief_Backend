@@ -1,6 +1,7 @@
 import Machine from '../models/machine.model.js';
 import Worker from '../models/worker.model.js';
 import StorageRack from '../models/storageRack.model.js';
+import ProductionRack from '../models/productionRack.model.js';
 import Container from '../models/container.model.js';
 import LabelTemplate from '../models/labelTemplate.model.js';
 import DeviceRegistry from '../models/deviceRegistry.model.js';
@@ -23,6 +24,12 @@ export const workerService = createCatalogCrud(Worker, {
 
 export const storageRackService = createCatalogCrud(StorageRack, {
   resourceName: 'Storage rack',
+  uniqueField: 'code',
+  searchFields: ['code', 'name', 'floor', 'zone', 'stockType', 'barcode'],
+});
+
+export const productionRackService = createCatalogCrud(ProductionRack, {
+  resourceName: 'Production rack',
   uniqueField: 'code',
   searchFields: ['code', 'name', 'floor', 'zone', 'stockType', 'barcode'],
 });

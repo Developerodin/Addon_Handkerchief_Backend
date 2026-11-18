@@ -64,7 +64,10 @@ async function rollSummaryByRack() {
  */
 export async function rackBoard(query = {}) {
   const [racks, summary] = await Promise.all([
-    StorageRack.find({ status: 'active' }).select('code name barcode location floor zone status').sort({ code: 1 }).lean(),
+    StorageRack.find({ status: 'active', stockType: 'fabric' })
+      .select('code name barcode location floor zone status')
+      .sort({ code: 1 })
+      .lean(),
     rollSummaryByRack(),
   ]);
   let results = racks.map((rack) => {

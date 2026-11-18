@@ -2,8 +2,10 @@ import httpStatus from 'http-status';
 import ApiError from '../../utils/ApiError.js';
 import { CutPiece, ProductionOrder } from '../../models/production.model.js';
 import Machine from '../../models/machine.model.js';
-import StorageRack from '../../models/storageRack.model.js';
-import { writeOrderLog } from '../orderLog.service.js';
+import { logPieces } from './pieceLog.js';
+import { rackOfType } from './bundleFloor.js';
+import { txnEntityUpdate } from './floorTxn.js';
+import { completedPiecesFromLogs } from './floorCompleted.js';
 
 const FROM_VERTICAL_CUT = [{ process: 'vertical-cut' }, { process: { $exists: false } }];
 
@@ -17,15 +19,7 @@ const fromVerticalCut = (piece) => !piece.process || piece.process === 'vertical
  * Active pieces rack, matched by code or barcode.
  * @param {string} scanned
  */
-const piecesRack = async (scanned) => {
-  const rack = await StorageRack.findOne({
-    status: 'active',
-    $or: [{ code: scanned.toUpperCase() }, { barcode: scanned }, { barcode: scanned.toUpperCase() }],
-  });
-  if (!rack) throw new ApiError(httpStatus.BAD_REQUEST, 'Rack not found');
-  if (rack.stockType !== 'pieces') throw new ApiError(httpStatus.BAD_REQUEST, 'This rack is not for pieces');
-  return rack;
-};
+const piecesRack = (scanned) => rackOfType(scanned, 'pieces', 'This rack is not for pieces');
 
 /**
  * Unique scanned piece barcodes.
@@ -64,10 +58,12 @@ export const upcomingSelvage = async () => {
     CutPiece.countDocuments({ process: 'selvage', updatedAt: { $gte: start } }),
     CutPiece.countDocuments({ process: 'selvage', status: 'on-rack' }),
   ]);
+  const completed = await completedPiecesFromLogs(['selvage-done']);
   return {
     results: waiting.map((row) => shapePiece(row, orderNumbers)),
     active: active.map((row) => shapePiece(row, orderNumbers)),
-    counts: { waiting: waiting.length, onTable: active.length, doneToday, onRack },
+    completed,
+    counts: { waiting: waiting.length, onTable: active.length, doneToday, onRack, completed: completed.length },
   };
 };
 
@@ -77,20 +73,6 @@ export const upcomingSelvage = async () => {
  * @param {object} entry
  * @param {object | null} user
  */
-const logPieces = (pieces, entry, user) => {
-  const orderIds = new Set(pieces.map((piece) => String(piece.orderId)));
-  return writeOrderLog(
-    {
-      ...entry,
-      orderId: orderIds.size === 1 ? pieces[0].orderId : undefined,
-      entityType: 'roll',
-      entityCode: pieces[0].barcode,
-      quantity: pieces.length,
-    },
-    user
-  );
-};
-
 /**
  * Picks racked vertical-cut pieces onto a table.
  * @param {{ pieceBarcodes?: string[], rackCode?: string, machineBarcode?: string }} body
@@ -117,13 +99,14 @@ export const startSelvage = async (body, _params, user) => {
     if (!fromVerticalCut(piece)) throw new ApiError(httpStatus.BAD_REQUEST, 'This piece is already selvaged');
     if (piece.rackCode !== rack.code) throw new ApiError(httpStatus.BAD_REQUEST, 'This piece is not on that rack');
   }
-  await CutPiece.updateMany({ barcode: { $in: codes } }, { status: 'in-work', machineBarcode: machine.barcode });
-  await logPieces(
-    pieces,
-    { action: 'selvage-start', fromLocation: rack.code, toLocation: machine.barcode, remarks: '' },
-    user
-  );
-  return CutPiece.find({ barcode: { $in: codes } });
+  return txnEntityUpdate({
+    Model: CutPiece,
+    filter: { barcode: { $in: codes } },
+    update: { status: 'in-work', machineBarcode: machine.barcode },
+    afterUpdate: (session) =>
+      logPieces(pieces, { action: 'selvage-start', fromLocation: rack.code, toLocation: machine.barcode, remarks: '' }, user, session),
+    load: (session) => CutPiece.find({ barcode: { $in: codes } }).session(session || undefined),
+  });
 };
 
 /**
@@ -148,10 +131,12 @@ export const placeSelvage = async (body, _params, user) => {
     if (piece.status !== 'in-work') throw new ApiError(httpStatus.BAD_REQUEST, 'This piece is not on the table');
     if (!fromVerticalCut(piece)) throw new ApiError(httpStatus.BAD_REQUEST, 'This piece is already selvaged');
   }
-  await CutPiece.updateMany(
-    { barcode: { $in: codes } },
-    { process: 'selvage', status: 'on-rack', rackCode: rack.code }
-  );
-  await logPieces(pieces, { action: 'selvage-done', fromLocation: '', toLocation: rack.code, remarks: '' }, user);
-  return CutPiece.find({ barcode: { $in: codes } });
+  return txnEntityUpdate({
+    Model: CutPiece,
+    filter: { barcode: { $in: codes } },
+    update: { process: 'selvage', status: 'on-rack', rackCode: rack.code },
+    afterUpdate: (session) =>
+      logPieces(pieces, { action: 'selvage-done', fromLocation: '', toLocation: rack.code, remarks: '' }, user, session),
+    load: (session) => CutPiece.find({ barcode: { $in: codes } }).session(session || undefined),
+  });
 };

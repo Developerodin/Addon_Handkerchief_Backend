@@ -2,9 +2,11 @@ import httpStatus from 'http-status';
 import ApiError from '../../utils/ApiError.js';
 import { PieceBundle, ProductionOrder, ThreadUse } from '../../models/production.model.js';
 import Machine from '../../models/machine.model.js';
-import StorageRack from '../../models/storageRack.model.js';
 import RawMaterial from '../../models/rawMaterial.model.js';
-import { writeOrderLog } from '../orderLog.service.js';
+import { runTransaction, sessionOptions } from '../../utils/mongoTransaction.js';
+import { logBundles, rackOfType } from './bundleFloor.js';
+import { txnEntityUpdate } from './floorTxn.js';
+import { completedBundlesFromLogs } from './floorCompleted.js';
 
 const CREATED = { $or: [{ process: 'created' }, { process: '' }, { process: null }, { process: { $exists: false } }] };
 
@@ -18,15 +20,7 @@ const stillCreated = (bundle) => !bundle.process || bundle.process === 'created'
  * Active bundles rack, matched by code or barcode.
  * @param {string} scanned
  */
-const bundlesRack = async (scanned) => {
-  const rack = await StorageRack.findOne({
-    status: 'active',
-    $or: [{ code: String(scanned || '').toUpperCase() }, { barcode: scanned }, { barcode: String(scanned || '').toUpperCase() }],
-  });
-  if (!rack) throw new ApiError(httpStatus.BAD_REQUEST, 'Rack not found');
-  if (rack.stockType !== 'bundles') throw new ApiError(httpStatus.BAD_REQUEST, 'This rack is not for bundles');
-  return rack;
-};
+const bundlesRack = (scanned) => rackOfType(scanned, 'bundles', 'This rack is not for bundles');
 
 /**
  * Unique scanned bundle barcodes.
@@ -41,7 +35,7 @@ const bundleCodes = (barcodes) => [...new Set((barcodes || []).map((code) => Str
  * @param {Map<string, string>} names
  */
 const sewingThread = (order, lineId, names) => {
-  const matched = (order?.lines || []).find((line) => lineId && String(line.id) === lineId);
+  const matched = (order?.lines || []).find((line) => lineId && String(line.id || line._id) === lineId);
   const line = matched || order?.lines?.[0];
   const rows = (line?.snapshot?.threadLines || []).filter((row) => row.materialRole === 'sewing-thread');
   const lines = rows.map((row) => ({
@@ -78,7 +72,9 @@ const shapeBundle = (row, orders, names) => {
  */
 const orderContext = async (rows) => {
   const orderIds = [...new Set(rows.map((row) => String(row.orderId)))];
-  const orders = await ProductionOrder.find({ _id: { $in: orderIds } }).select('orderNumber lines');
+  const orders = await ProductionOrder.find({ _id: { $in: orderIds } })
+    .select('orderNumber lines.id lines.snapshot.threadLines')
+    .lean();
   const materialIds = [
     ...new Set(
       orders.flatMap((order) =>
@@ -92,8 +88,8 @@ const orderContext = async (rows) => {
   ];
   const materials = materialIds.length ? await RawMaterial.find({ _id: { $in: materialIds } }).select('name') : [];
   return {
-    orders: new Map(orders.map((order) => [String(order.id), order])),
-    names: new Map(materials.map((material) => [String(material.id), material.name || 'Sewing thread'])),
+    orders: new Map(orders.map((order) => [String(order._id || order.id), order])),
+    names: new Map(materials.map((material) => [String(material.id || material._id), material.name || 'Sewing thread'])),
   };
 };
 
@@ -106,8 +102,8 @@ export const upcomingHorizontalHem = async () => {
     $and: [{ closed: true, checkedGood: true, rackCode: { $in: ['', null] }, machineBarcode: { $nin: ['', null] } }, CREATED],
   };
   const [waiting, active] = await Promise.all([
-    PieceBundle.find(waitingQuery).sort({ updatedAt: -1 }).limit(200),
-    PieceBundle.find(activeQuery).sort({ updatedAt: -1 }).limit(200),
+    PieceBundle.find(waitingQuery).sort({ updatedAt: -1 }).limit(200).lean(),
+    PieceBundle.find(activeQuery).sort({ updatedAt: -1 }).limit(200).lean(),
   ]);
   const { orders, names } = await orderContext([...waiting, ...active]);
   const start = new Date();
@@ -116,10 +112,12 @@ export const upcomingHorizontalHem = async () => {
     PieceBundle.countDocuments({ process: 'horizontal-hem', updatedAt: { $gte: start } }),
     PieceBundle.countDocuments({ process: 'horizontal-hem', rackCode: { $nin: ['', null] } }),
   ]);
+  const completed = await completedBundlesFromLogs(['horizontal-hem-done']);
   return {
     results: waiting.map((row) => shapeBundle(row, orders, names)),
     active: active.map((row) => shapeBundle(row, orders, names)),
-    counts: { waiting: waiting.length, onMachine: active.length, doneToday, onRack },
+    completed,
+    counts: { waiting: waiting.length, onMachine: active.length, doneToday, onRack, completed: completed.length },
   };
 };
 
@@ -129,20 +127,6 @@ export const upcomingHorizontalHem = async () => {
  * @param {object} entry
  * @param {object | null} user
  */
-const logBundles = (bundles, entry, user) => {
-  const orderIds = new Set(bundles.map((bundle) => String(bundle.orderId)));
-  return writeOrderLog(
-    {
-      ...entry,
-      orderId: orderIds.size === 1 ? bundles[0].orderId : undefined,
-      entityType: 'bundle',
-      entityCode: bundles[0].barcode,
-      quantity: bundles.reduce((sum, bundle) => sum + (bundle.qty || 0), 0),
-    },
-    user
-  );
-};
-
 /**
  * Rejects a bundle that is not a checked good bundle waiting on a rack.
  * @param {object} bundle
@@ -179,13 +163,19 @@ export const startHorizontalHem = async (body, _params, user) => {
   const bundles = await PieceBundle.find({ barcode: { $in: codes } });
   if (bundles.length !== codes.length) throw new ApiError(httpStatus.BAD_REQUEST, 'Bundle not found');
   for (const bundle of bundles) assertWaiting(bundle, rack.code);
-  await PieceBundle.updateMany({ barcode: { $in: codes } }, { rackCode: '', machineBarcode: machine.barcode, process: 'created' });
-  await logBundles(
-    bundles,
-    { action: 'horizontal-hem-start', fromLocation: rack.code, toLocation: machine.barcode, remarks: '' },
-    user
-  );
-  return PieceBundle.find({ barcode: { $in: codes } });
+  return txnEntityUpdate({
+    Model: PieceBundle,
+    filter: { barcode: { $in: codes } },
+    update: { rackCode: '', machineBarcode: machine.barcode, process: 'created' },
+    afterUpdate: (session) =>
+      logBundles(
+        bundles,
+        { action: 'horizontal-hem-start', fromLocation: rack.code, toLocation: machine.barcode, remarks: '' },
+        user,
+        session
+      ),
+    load: (session) => PieceBundle.find({ barcode: { $in: codes } }).session(session || undefined),
+  });
 };
 
 /**
@@ -223,15 +213,22 @@ export const placeHorizontalHem = async (body, _params, user) => {
     }
   }
   const orderIds = [...new Set(bundles.map((bundle) => String(bundle.orderId)))];
-  await ThreadUse.create(
-    orderIds.map((orderId) => ({
-      orderId,
-      machineBarcode: bundles.find((bundle) => String(bundle.orderId) === orderId)?.machineBarcode || '',
-      materialRole: 'sewing-thread',
-      quantity: used,
-    }))
-  );
-  await PieceBundle.updateMany({ barcode: { $in: codes } }, { process: 'horizontal-hem', rackCode: rack.code });
-  await logBundles(bundles, { action: 'horizontal-hem-done', fromLocation: '', toLocation: rack.code, remarks: '' }, user);
-  return PieceBundle.find({ barcode: { $in: codes } });
+  return runTransaction(async (session) => {
+    await ThreadUse.create(
+      orderIds.map((orderId) => ({
+        orderId,
+        machineBarcode: bundles.find((bundle) => String(bundle.orderId) === orderId)?.machineBarcode || '',
+        materialRole: 'sewing-thread',
+        quantity: used,
+      })),
+      sessionOptions(session)
+    );
+    await PieceBundle.updateMany(
+      { barcode: { $in: codes } },
+      { process: 'horizontal-hem', rackCode: rack.code },
+      sessionOptions(session)
+    );
+    await logBundles(bundles, { action: 'horizontal-hem-done', fromLocation: '', toLocation: rack.code, remarks: '' }, user, session);
+    return PieceBundle.find({ barcode: { $in: codes } }).session(session || undefined);
+  });
 };

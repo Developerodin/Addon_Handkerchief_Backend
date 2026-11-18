@@ -1,7 +1,16 @@
 import { ProductionOrder } from '../../models/production.model.js';
 
-const MISSING_NUMBER = {
+export const MISSING_NUMBER = {
   $or: [{ orderNumber: { $exists: false } }, { orderNumber: null }, { orderNumber: '' }],
+};
+
+/**
+ * Backfill runs only when at least one order still has no number.
+ */
+export const ensureBackfillIfNeeded = async () => {
+  const missing = await ProductionOrder.exists(MISSING_NUMBER);
+  if (!missing) return;
+  await backfillOrderNumbers();
 };
 
 /**
@@ -45,6 +54,6 @@ export const backfillOrderNumbers = async () => {
  * @returns {Promise<string>}
  */
 export const allocateOrderNumber = async () => {
-  await backfillOrderNumbers();
+  await ensureBackfillIfNeeded();
   return nextOrderNumber();
 };

@@ -42,8 +42,8 @@ const dateRange = (query) => {
  */
 const ensureOrderNumbers = async (Model) => {
   if (Model !== ProductionOrder) return;
-  const { backfillOrderNumbers } = await import('./production/orderNumber.js');
-  await backfillOrderNumbers();
+  const { ensureBackfillIfNeeded } = await import('./production/orderNumber.js');
+  await ensureBackfillIfNeeded();
 };
 
 /**
@@ -395,10 +395,76 @@ export const listProductionOrders = async (query) => {
       { 'lines.articleName': pattern },
     ];
   }
+  const skipHeavy = query.picklist === '1' || Boolean(query.floor);
+  if (query.picklist === '1') {
+    await ensureOrderNumbers(ProductionOrder);
+    const limit = Math.min(200, Math.max(1, parseInt(query.limit, 10) || 100));
+    const page = Math.max(1, parseInt(query.page, 10) || 1);
+    const skip = (page - 1) * limit;
+    const sort = query.sort === 'createdAt:asc' ? { createdAt: 1 } : { createdAt: -1 };
+    const [rows, totalResults] = await Promise.all([
+      ProductionOrder.find(filter).select('orderNumber').sort(sort).skip(skip).limit(limit).lean(),
+      ProductionOrder.countDocuments(filter),
+    ]);
+    return {
+      results: rows.map((row) => ({ id: String(row._id), orderNumber: row.orderNumber || '' })),
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(totalResults / limit)),
+      totalResults,
+    };
+  }
+  if (query.floor) {
+    await ensureOrderNumbers(ProductionOrder);
+    const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 20));
+    const page = Math.max(1, parseInt(query.page, 10) || 1);
+    const skip = (page - 1) * limit;
+    const sort = query.sort === 'createdAt:asc' ? { createdAt: 1 } : { createdAt: -1 };
+    const [rows, totalResults] = await Promise.all([
+      ProductionOrder.find(filter)
+        .select('orderNumber status targetQty priority currentFloor floors productionType revisionId lines.floors lines.quantity')
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      ProductionOrder.countDocuments(filter),
+    ]);
+    const results = rows.map((row) => {
+      const lines = Array.isArray(row.lines) ? row.lines : [];
+      const floors = row.floors?.length ? row.floors : lines[0]?.floors || [];
+      return {
+        id: String(row._id),
+        orderNumber: row.orderNumber || '',
+        status: row.status,
+        targetQty: row.targetQty,
+        priority: row.priority,
+        currentFloor: row.currentFloor || '',
+        productionType: row.productionType,
+        revisionId: row.revisionId || '',
+        floors,
+        segments: [],
+        lines: lines.map((line, index) => ({
+          id: line._id ? String(line._id) : String(index),
+          quantity: line.quantity,
+          floors: line.floors || [],
+        })),
+      };
+    });
+    return {
+      results,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(totalResults / limit)),
+      totalResults,
+    };
+  }
   const { orderStatusCounts } = await import('./production/orderViews.service.js');
-  const [page, counts] = await Promise.all([pageOf(ProductionOrder, filter, query), orderStatusCounts()]);
-  const results = await attachFabricIssue(page.results);
-  return { ...page, results, counts };
+  const [page, counts] = await Promise.all([
+    pageOf(ProductionOrder, filter, query),
+    skipHeavy ? Promise.resolve(null) : orderStatusCounts(),
+  ]);
+  const results = skipHeavy ? page.results.map((doc) => doc.toJSON()) : await attachFabricIssue(page.results);
+  return { ...page, results, ...(counts ? { counts } : {}) };
 };
 
 /**
@@ -414,11 +480,58 @@ export const getProductionOrder = async (orderId) => {
     if (!line.snapshot?.fabricBom) continue;
     line.snapshot.fabricBom = realFabricBom(line.snapshot.fabricBom);
   }
-  const [completions, bundles] = await Promise.all([
-    FloorCompletion.find({ orderId: order.id }),
-    PieceBundle.find({ orderId: order.id }),
+  const oid = order.id;
+  const { finalCheckingGoodSum } = await import('./production/orderProgress.js');
+  const { dispatchPackForOrder } = await import('./warehouse/orderDispatch.js');
+  const { floorWorkedFromLogs } = await import('./production/orderFloorActivity.js');
+  const [completions, bundles, finalCheckingGood, packingBundles, dispatch] = await Promise.all([
+    FloorCompletion.find({ orderId: oid }).select('stage qty lineId eventId machineBarcode createdAt').lean(),
+    PieceBundle.find({ orderId: oid })
+      .select('number qty closed barcode rackCode floorChecked checkedGood process status')
+      .sort({ number: 1 })
+      .lean(),
+    finalCheckingGoodSum(oid),
+    PackingBundle.find({ orderId: oid })
+      .select('barcode qty pieceBundleBarcode boxBarcode onPackingRack scaleWeight updatedAt')
+      .sort({ createdAt: -1 })
+      .limit(200)
+      .lean(),
+    dispatchPackForOrder(oid),
   ]);
-  return { order: json, completions, bundles };
+  const targetQty = Number(json.targetQty) || 0;
+  const floorProgress = await floorWorkedFromLogs(oid, json.floors || []);
+  return {
+    order: json,
+    finalCheckingGood,
+    packingShortfall: targetQty > finalCheckingGood ? targetQty - finalCheckingGood : 0,
+    floorProgress,
+    completions,
+    packingBundles: packingBundles.map((row) => ({
+      id: String(row._id),
+      barcode: row.barcode,
+      qty: row.qty,
+      pieceBundleBarcode: row.pieceBundleBarcode || '',
+      boxBarcode: row.boxBarcode || '',
+      onPackingRack: Boolean(row.onPackingRack),
+      scaleWeight: Number(row.scaleWeight) || 0,
+      updatedAt: row.updatedAt,
+    })),
+    dispatch: dispatch || { order: null, onRack: [], pipeline: [], dispatched: [] },
+    bundles: bundles.map((row) => ({
+      id: String(row._id),
+      number: row.number,
+      qty: row.qty,
+      closed: row.closed,
+      barcode: row.barcode,
+      rackCode: row.rackCode,
+      floorChecked: row.floorChecked,
+      checkedGood: row.checkedGood,
+      process: row.process,
+      route: row.route,
+      finalGood: row.finalGood,
+      status: row.status,
+    })),
+  };
 };
 
 /** @param {object} query */

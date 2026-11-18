@@ -1,29 +1,122 @@
 import { PieceBundle, ProductionOrder } from '../../models/production.model.js';
+import { completedBundlesFromLogs } from './floorCompleted.js';
 
-const NOT_CHECKED = {
-  closed: true,
-  barcode: { $nin: ['', null] },
-  rackCode: { $nin: ['', null] },
-  checkedGood: { $ne: true },
+const STILL_AT_SINGLE_PIECE = {
   $or: [{ process: 'created' }, { process: '' }, { process: null }, { process: { $exists: false } }],
 };
 
+const CLOSED_BUNDLE = {
+  closed: true,
+  barcode: { $nin: ['', null] },
+};
+
 /**
- * Closed bundles on a rack that single piece cutting has handed over and floor checks has not taken.
+ * @param {import('mongoose').Document} row
  */
-export const upcomingFloorChecks = async () => {
-  const rows = await PieceBundle.find(NOT_CHECKED).sort({ updatedAt: -1 }).limit(200);
-  const orders = await ProductionOrder.find({ _id: { $in: rows.map((row) => row.orderId) } }).select('orderNumber');
-  const numbers = new Map(orders.map((order) => [String(order.id), order.orderNumber || '']));
-  return {
-    results: rows.map((row) => ({
-      id: String(row.id),
+function hemBlockers(row) {
+  const blockers = [];
+  if (!row.closed) blockers.push('Close bundle on Single piece cutting');
+  if (!row.barcode) blockers.push('Close bundle (missing barcode)');
+  if (!String(row.rackCode || '').trim()) blockers.push('Place on a bundles rack');
+  if (!row.checkedGood && !row.floorChecked) blockers.push('Complete floor check counts');
+  if (row.process && row.process !== 'created') blockers.push(`Already at ${row.process}`);
+  return blockers;
+}
+
+/**
+ * @param {object[]} rows
+ * @param {Map<string, string>} numbers
+ */
+function mapRows(rows, numbers) {
+  return rows.map((row) => {
+    const blockers = hemBlockers(row);
+    return {
+      id: String(row._id || row.id),
       barcode: row.barcode,
       orderId: String(row.orderId),
       orderNumber: numbers.get(String(row.orderId)) || '',
       qty: row.qty || 0,
       rackCode: row.rackCode || '',
-    })),
-    counts: { waiting: rows.length },
+      readyForHorizontalHem: blockers.length === 0,
+      blockers,
+    };
+  });
+}
+
+/**
+ * Closed bundles on a rack awaiting bundle check, plus closed-off-rack and checked queues for the UI.
+ */
+export const upcomingFloorChecks = async () => {
+  const onRackQuery = {
+    $and: [
+      CLOSED_BUNDLE,
+      { rackCode: { $nin: ['', null] } },
+      { floorChecked: { $ne: true } },
+      { checkedGood: { $ne: true } },
+      STILL_AT_SINGLE_PIECE,
+    ],
+  };
+  const pendingRackQuery = {
+    $and: [
+      CLOSED_BUNDLE,
+      { $or: [{ rackCode: '' }, { rackCode: null }, { rackCode: { $exists: false } }] },
+      { floorChecked: { $ne: true } },
+      { checkedGood: { $ne: true } },
+      STILL_AT_SINGLE_PIECE,
+    ],
+  };
+  const receivedQuery = {
+    $and: [
+      CLOSED_BUNDLE,
+      { $or: [{ floorChecked: true }, { checkedGood: true }] },
+      STILL_AT_SINGLE_PIECE,
+    ],
+  };
+
+  const [onRack, pendingRack, received] = await Promise.all([
+    PieceBundle.find(onRackQuery).sort({ updatedAt: -1 }).limit(200).lean(),
+    PieceBundle.find(pendingRackQuery).sort({ updatedAt: -1 }).limit(200).lean(),
+    PieceBundle.find(receivedQuery).sort({ updatedAt: -1 }).limit(200).lean(),
+  ]);
+
+  const orderIds = [...new Set([...onRack, ...pendingRack, ...received].map((row) => row.orderId))];
+  const orders = orderIds.length
+    ? await ProductionOrder.find({ _id: { $in: orderIds } }).select('orderNumber').lean()
+    : [];
+  const numbers = new Map(orders.map((order) => [String(order._id), order.orderNumber || '']));
+
+  const completed = await completedBundlesFromLogs(['bundle-check']);
+  const checkedBarcodes = [...new Set(completed.map((row) => row.barcode).filter(Boolean))];
+  const completedBundles = checkedBarcodes.length
+    ? await PieceBundle.find({ barcode: { $in: checkedBarcodes } }).lean()
+    : [];
+  const bundleByBarcode = new Map(completedBundles.map((row) => [row.barcode, row]));
+  const completedEnriched = completed.map((row) => {
+    const bundle = row.barcode ? bundleByBarcode.get(row.barcode) : null;
+    if (!bundle) return row;
+    const blockers = hemBlockers(bundle);
+    return {
+      ...row,
+      rackCode: row.rackCode || bundle.rackCode || '',
+      readyForHorizontalHem: blockers.length === 0,
+      blockers,
+      movedOn: Boolean(bundle.process && bundle.process !== 'created'),
+    };
+  });
+
+  const receivedAll = mapRows(received, numbers);
+  const receivedNeedsAttention = receivedAll.filter((row) => !row.readyForHorizontalHem);
+
+  return {
+    results: mapRows(onRack, numbers),
+    pendingPlacement: mapRows(pendingRack, numbers),
+    received: receivedNeedsAttention,
+    completed: completedEnriched,
+    counts: {
+      waiting: onRack.length,
+      pendingPlacement: pendingRack.length,
+      received: receivedNeedsAttention.length,
+      completed: completedEnriched.length,
+    },
   };
 };

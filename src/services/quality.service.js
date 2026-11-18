@@ -4,6 +4,7 @@ import { DEFAULT_GRADES, QualityGrade, QualityResult } from '../models/quality.m
 import { FabricLot, FabricRoll, PurchaseOrder } from '../models/store.model.js';
 import { PieceBundle } from '../models/production.model.js';
 import { writeOrderLog } from './orderLog.service.js';
+import { runTransaction, sessionOptions } from '../utils/mongoTransaction.js';
 import { receiveRollBack } from './store.service.js';
 
 /**
@@ -242,44 +243,81 @@ export const rejectRollToRack = async (body, _params, user) => {
 };
 
 /**
- * Good, defect, and M4 quantities must add up to the bundle. M4 is not in the good count.
- * @param {object} body
+ * Good, M2, and M4 quantities must add up to the bundle. M4 is not in the good count.
+ * @param {object} body — `m2Qty` preferred; `defectQty` accepted for older clients (same meaning).
  * @param {object} [_params]
  * @param {object | null} [user]
  */
 export const recordBundleCheck = async (body, _params, user) => {
   const bundle = await PieceBundle.findById(body.bundleId);
   if (!bundle) throw new ApiError(httpStatus.NOT_FOUND, 'Bundle not found');
-  const sum = (body.goodQty || 0) + (body.defectQty || 0) + (body.m4Qty || 0);
+  if (!bundle.closed) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Close this bundle on Single piece cutting before floor check.');
+  }
+  if (!bundle.barcode) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'This bundle has no barcode. Close it on Single piece cutting first.');
+  }
+  if (!String(bundle.rackCode || '').trim()) {
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      'Place this bundle on a bundles rack in Single piece cutting before floor check.'
+    );
+  }
+  const m2Qty =
+    body.m2Qty !== undefined && body.m2Qty !== null
+      ? Number(body.m2Qty) || 0
+      : Number(body.defectQty) || 0;
+  const goodQty = Number(body.goodQty) || 0;
+  const m4Qty = Number(body.m4Qty) || 0;
+  const sum = goodQty + m2Qty + m4Qty;
   if (sum !== bundle.qty) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'Bundle check quantities must sum to the bundle');
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Good + M2 + M4 must equal the bundle quantity');
   }
   const existing = await QualityResult.findOne({ eventId: body.eventId });
   if (existing) return existing;
-  bundle.checkedGood = body.goodQty === bundle.qty;
-  await bundle.save();
-  const result = await QualityResult.create({
-    eventId: body.eventId,
-    kind: 'bundle-check',
-    bundleId: String(bundle.id),
-    orderId: String(bundle.orderId),
-    goodQty: body.goodQty,
-    defectQty: body.defectQty,
-    m4Qty: body.m4Qty,
-    passed: bundle.checkedGood,
+  const allGood = goodQty === bundle.qty;
+  return runTransaction(async (session) => {
+    bundle.floorChecked = true;
+    // Dev/testing: completed floor check can proceed to horizontal hemming even with M2/M4 split.
+    bundle.checkedGood = true;
+    await bundle.save(sessionOptions(session));
+    const [result] = await QualityResult.create(
+      [
+        {
+          eventId: body.eventId,
+          kind: 'bundle-check',
+          bundleId: String(bundle.id),
+          orderId: String(bundle.orderId),
+          goodQty,
+          m2Qty,
+          defectQty: m2Qty,
+          m4Qty,
+          passed: allGood,
+        },
+      ],
+      sessionOptions(session)
+    );
+    await writeOrderLog(
+      {
+        action: 'bundle-check',
+        orderId: bundle.orderId,
+        entityType: 'bundle',
+        entityCode: bundle.barcode,
+        quantity: goodQty,
+        remarks: `m2 ${m2Qty} m4 ${m4Qty}`,
+      },
+      user,
+      session
+    );
+    const processOk = !bundle.process || bundle.process === 'created';
+    return {
+      ...result.toObject(),
+      bundleBarcode: bundle.barcode,
+      rackCode: bundle.rackCode,
+      readyForHorizontalHem: processOk,
+      nextStep: processOk ? 'horizontal-hem' : bundle.process,
+    };
   });
-  await writeOrderLog(
-    {
-      action: 'bundle-check',
-      orderId: bundle.orderId,
-      entityType: 'bundle',
-      entityCode: String(bundle.id),
-      quantity: body.goodQty || 0,
-      remarks: `defect ${body.defectQty || 0} m4 ${body.m4Qty || 0}`,
-    },
-    user
-  );
-  return result;
 };
 
 /**

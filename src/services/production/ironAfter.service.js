@@ -2,6 +2,7 @@ import httpStatus from 'http-status';
 import ApiError from '../../utils/ApiError.js';
 import { PieceBundle } from '../../models/production.model.js';
 import { activeMachine, boardFor, bundleCodes, loadBundles, logBundles, rackOfType } from './bundleFloor.js';
+import { txnEntityUpdate } from './floorTxn.js';
 
 const ready = { process: { $in: ['embroidery-thread-cut', 'sticker'] } };
 
@@ -10,10 +11,16 @@ const ready = { process: { $in: ['embroidery-thread-cut', 'sticker'] } };
  */
 export const upcomingIronAfter = async () =>
   boardFor(
-    { ...ready, closed: true, rackCode: { $nin: ['', null] } },
+    {
+      ...ready,
+      closed: true,
+      rackCode: { $nin: ['', null] },
+      $or: [{ machineBarcode: '' }, { machineBarcode: null }, { machineBarcode: { $exists: false } }],
+    },
     { ...ready, rackCode: { $in: ['', null] }, machineBarcode: { $nin: ['', null] } },
     { process: 'iron-after' },
-    { process: 'iron-after', rackCode: { $nin: ['', null] } }
+    { process: 'iron-after', rackCode: { $nin: ['', null] } },
+    ['iron-after-done']
   );
 
 /**
@@ -38,9 +45,14 @@ export const startIronAfter = async (body, _params, user) => {
     }
     if (bundle.rackCode !== rack.code) throw new ApiError(httpStatus.BAD_REQUEST, 'This bundle is not on that rack');
   }
-  await PieceBundle.updateMany({ barcode: { $in: codes } }, { rackCode: '', machineBarcode: machine.barcode });
-  await logBundles(bundles, { action: 'iron-after-start', fromLocation: rack.code, toLocation: machine.barcode, remarks: '' }, user);
-  return PieceBundle.find({ barcode: { $in: codes } });
+  return txnEntityUpdate({
+    Model: PieceBundle,
+    filter: { barcode: { $in: codes } },
+    update: { rackCode: '', machineBarcode: machine.barcode },
+    afterUpdate: (session) =>
+      logBundles(bundles, { action: 'iron-after-start', fromLocation: rack.code, toLocation: machine.barcode, remarks: '' }, user, session),
+    load: (session) => PieceBundle.find({ barcode: { $in: codes } }).session(session || undefined),
+  });
 };
 
 /**
@@ -61,7 +73,12 @@ export const placeIronAfter = async (body, _params, user) => {
       throw new ApiError(httpStatus.BAD_REQUEST, 'This bundle is not on the iron');
     }
   }
-  await PieceBundle.updateMany({ barcode: { $in: codes } }, { process: 'iron-after', rackCode: rack.code });
-  await logBundles(bundles, { action: 'iron-after-done', fromLocation: '', toLocation: rack.code, remarks: '' }, user);
-  return PieceBundle.find({ barcode: { $in: codes } });
+  return txnEntityUpdate({
+    Model: PieceBundle,
+    filter: { barcode: { $in: codes } },
+    update: { process: 'iron-after', rackCode: rack.code },
+    afterUpdate: (session) =>
+      logBundles(bundles, { action: 'iron-after-done', fromLocation: '', toLocation: rack.code, remarks: '' }, user, session),
+    load: (session) => PieceBundle.find({ barcode: { $in: codes } }).session(session || undefined),
+  });
 };

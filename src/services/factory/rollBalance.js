@@ -118,7 +118,7 @@ function meterCap(roll, issue) {
  * @param {object} movement fields besides the balance and the actor
  * @param {object | null} [user]
  */
-export async function issueWholeBalance(roll, movement, user) {
+export async function issueWholeBalance(roll, movement, user, session) {
   await ensureCurrentBalance(roll);
   if (!(Number(roll.currentNetWeight) > 0)) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'This roll has no balance left');
