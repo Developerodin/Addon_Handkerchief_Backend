@@ -140,6 +140,8 @@ export const completedBundlesFromLogs = async (actions, days = DEFAULT_SINCE_DAY
         transferQty = Number(finalChecking.goodQty) || loggedQty;
       } else if (action === 'final-qc' && finalQc) {
         transferQty = Number(finalQc.goodQty) || loggedQty;
+      } else if (action === 'bundle-check' && goodQty > 0) {
+        transferQty = goodQty;
       } else if (transferQty < 1 && bundle) {
         transferQty = transferableQty(bundle);
       }

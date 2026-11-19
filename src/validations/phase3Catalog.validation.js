@@ -17,6 +17,7 @@ export const createMachine = {
     makeModel: Joi.string().allow(''),
     department: Joi.string().valid(...PROCESS_DEPARTMENTS, '').allow(''),
     floor: Joi.string().allow(''),
+    equipmentRole: Joi.string().valid('machine', 'table'),
     capacityPerShift: Joi.number().min(0),
     maintenanceIntervalMonths: Joi.number().min(0),
     lastMaintenanceDate: Joi.date().allow(null),
@@ -31,8 +32,17 @@ export const createMachine = {
 
 export const getMachines = {
   query: Joi.object().keys({
-    name: Joi.string(), code: Joi.string(), machineType: Joi.string(), department: Joi.string(), status: Joi.string(),
-    search: Joi.string(), sortBy: Joi.string(), limit: Joi.number().integer(), page: Joi.number().integer(),
+    name: Joi.string(),
+    code: Joi.string(),
+    machineType: Joi.string(),
+    department: Joi.string(),
+    floor: Joi.string(),
+    equipmentRole: Joi.string().valid('machine', 'table'),
+    status: Joi.string(),
+    search: Joi.string(),
+    sortBy: Joi.string(),
+    limit: Joi.number().integer(),
+    page: Joi.number().integer(),
   }),
 };
 
@@ -48,6 +58,7 @@ export const updateMachine = {
       makeModel: Joi.string().allow(''),
       department: Joi.string().valid(...PROCESS_DEPARTMENTS, '').allow(''),
       floor: Joi.string().allow(''),
+      equipmentRole: Joi.string().valid('machine', 'table'),
       capacityPerShift: Joi.number().min(0),
       maintenanceIntervalMonths: Joi.number().min(0),
       lastMaintenanceDate: Joi.date().allow(null),
@@ -142,8 +153,15 @@ export const createProductionRack = {
 
 export const getProductionRacks = {
   query: Joi.object().keys({
-    code: Joi.string(), name: Joi.string(), stockType: Joi.string(), status: Joi.string(),
-    search: Joi.string(), sortBy: Joi.string(), limit: Joi.number().integer(), page: Joi.number().integer(),
+    code: Joi.string(),
+    name: Joi.string(),
+    floor: Joi.string(),
+    stockType: Joi.string(),
+    status: Joi.string(),
+    search: Joi.string(),
+    sortBy: Joi.string(),
+    limit: Joi.number().integer(),
+    page: Joi.number().integer(),
   }),
 };
 

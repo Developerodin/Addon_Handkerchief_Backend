@@ -4,6 +4,7 @@ import { PieceBundle, ProductionOrder, ThreadUse } from '../../models/production
 import Machine from '../../models/machine.model.js';
 import RawMaterial from '../../models/rawMaterial.model.js';
 import { runTransaction, sessionOptions } from '../../utils/mongoTransaction.js';
+import { QualityResult } from '../../models/quality.model.js';
 import { logBundles, rackOfType } from './bundleFloor.js';
 import { txnEntityUpdate } from './floorTxn.js';
 import { completedBundlesFromLogs } from './floorCompleted.js';
@@ -46,18 +47,53 @@ const sewingThread = (order, lineId, names) => {
 };
 
 /**
+ * Latest floor-check good qty per bundle (after M2/M4 split).
+ * @param {string[]} bundleIds
+ */
+const latestFloorGoodByBundleIds = async (bundleIds) => {
+  if (!bundleIds.length) return new Map();
+  const rows = await QualityResult.find({
+    kind: 'bundle-check',
+    bundleId: { $in: bundleIds.map(String) },
+  })
+    .sort({ createdAt: -1 })
+    .select('bundleId goodQty')
+    .lean();
+  const map = new Map();
+  for (const row of rows) {
+    const id = String(row.bundleId);
+    if (!map.has(id)) map.set(id, Number(row.goodQty) || 0);
+  }
+  return map;
+};
+
+/**
+ * Pieces that continue after floor check (good only).
+ * @param {object} row
+ * @param {number} floorGood
+ */
+const hemWorkingQty = (row, floorGood) => {
+  const finalGood = Number(row.finalGood) || 0;
+  if (finalGood > 0) return finalGood;
+  if (floorGood > 0) return floorGood;
+  return Number(row.qty) || 0;
+};
+
+/**
  * @param {object} row
  * @param {Map<string, object>} orders
  * @param {Map<string, string>} names
+ * @param {number} [workingQty]
  */
-const shapeBundle = (row, orders, names) => {
+const shapeBundle = (row, orders, names, workingQty) => {
   const order = orders.get(String(row.orderId));
+  const qty = workingQty != null ? workingQty : hemWorkingQty(row, 0);
   return {
     id: String(row.id || row._id),
     barcode: row.barcode || '',
     orderId: String(row.orderId),
     orderNumber: order?.orderNumber || '',
-    qty: row.qty || 0,
+    qty,
     rackCode: row.rackCode || '',
     machineBarcode: row.machineBarcode || '',
     process: row.process || 'created',
@@ -105,6 +141,22 @@ export const upcomingHorizontalHem = async () => {
     PieceBundle.find(waitingQuery).sort({ updatedAt: -1 }).limit(200).lean(),
     PieceBundle.find(activeQuery).sort({ updatedAt: -1 }).limit(200).lean(),
   ]);
+  const bundleIds = [...waiting, ...active].map((row) => String(row._id || row.id));
+  const floorGoodById = await latestFloorGoodByBundleIds(bundleIds);
+  const syncOps = [];
+  for (const row of [...waiting, ...active]) {
+    const id = String(row._id || row.id);
+    const work = hemWorkingQty(row, floorGoodById.get(id) || 0);
+    if (!row.floorChecked || work < 1) continue;
+    const stored = Number(row.qty) || 0;
+    const storedFinal = Number(row.finalGood) || 0;
+    if (work !== stored || storedFinal !== work) {
+      syncOps.push(PieceBundle.updateOne({ _id: row._id }, { qty: work, finalGood: work }));
+      row.qty = work;
+      row.finalGood = work;
+    }
+  }
+  if (syncOps.length) await Promise.all(syncOps);
   const { orders, names } = await orderContext([...waiting, ...active]);
   const start = new Date();
   start.setHours(0, 0, 0, 0);
@@ -114,8 +166,14 @@ export const upcomingHorizontalHem = async () => {
   ]);
   const completed = await completedBundlesFromLogs(['horizontal-hem-done']);
   return {
-    results: waiting.map((row) => shapeBundle(row, orders, names)),
-    active: active.map((row) => shapeBundle(row, orders, names)),
+    results: waiting.map((row) => {
+      const id = String(row._id || row.id);
+      return shapeBundle(row, orders, names, hemWorkingQty(row, floorGoodById.get(id) || 0));
+    }),
+    active: active.map((row) => {
+      const id = String(row._id || row.id);
+      return shapeBundle(row, orders, names, hemWorkingQty(row, floorGoodById.get(id) || 0));
+    }),
     completed,
     counts: { waiting: waiting.length, onMachine: active.length, doneToday, onRack, completed: completed.length },
   };

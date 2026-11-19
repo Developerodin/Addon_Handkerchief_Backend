@@ -3,7 +3,7 @@ import ApiError from '../../utils/ApiError.js';
 import { PieceBundle } from '../../models/production.model.js';
 import { QualityResult } from '../../models/quality.model.js';
 import { runTransaction, sessionOptions } from '../../utils/mongoTransaction.js';
-import { activeRack, logBundles, orderMap, shapeBundle } from './bundleFloor.js';
+import { logBundles, orderMap, shapeBundle } from './bundleFloor.js';
 import { completedBundlesFromLogs } from './floorCompleted.js';
 
 const GRADES = ['long', 'hemming', 'sporting', 'diving', 'rejection'];
@@ -68,18 +68,20 @@ export const recordFinalQc = async (body, _params, user) => {
   }
   const existing = await QualityResult.findOne({ kind: 'final-qc', bundleId: String(bundle.id) });
   if (existing) throw new ApiError(httpStatus.BAD_REQUEST, 'This bundle is already final checked');
-  const good = whole(body.good, 'Good');
   const grades = [];
+  let defectSum = 0;
   for (const code of GRADES) {
     const qty = whole(body[code], code);
     if (!qty) continue;
-    const rackCode = body.racks?.[code];
-    if (!rackCode) throw new ApiError(httpStatus.BAD_REQUEST, 'Rack is required');
-    const rack = await activeRack(rackCode);
-    grades.push({ code, qty, rackCode: rack.code });
+    grades.push({ code, qty, rackCode: '' });
+    defectSum += qty;
   }
-  const sum = good + grades.reduce((total, grade) => total + grade.qty, 0);
-  if (sum !== bundle.qty) throw new ApiError(httpStatus.BAD_REQUEST, 'Final QC counts must sum to the bundle');
+  const bundleQty = Number(bundle.qty) || 0;
+  const good = bundleQty - defectSum;
+  if (defectSum > bundleQty) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Defect counts cannot exceed the bundle quantity');
+  }
+  if (good < 0) throw new ApiError(httpStatus.BAD_REQUEST, 'Final QC counts are invalid');
   return runTransaction(async (session) => {
     await QualityResult.create(
       [
@@ -89,7 +91,7 @@ export const recordFinalQc = async (body, _params, user) => {
           bundleId: String(bundle.id),
           orderId: String(bundle.orderId),
           goodQty: good,
-          defectQty: sum - good,
+          defectQty: defectSum,
           grades,
           passed: good > 0,
         },
@@ -102,8 +104,9 @@ export const recordFinalQc = async (body, _params, user) => {
     } else {
       bundle.process = 'final-qc-defect';
       bundle.finalGood = 0;
-      const rejection = grades.find((grade) => grade.code === 'rejection');
-      if (rejection?.rackCode) bundle.rackCode = rejection.rackCode;
+    }
+    if (good > 0 && good !== bundleQty) {
+      bundle.qty = good;
     }
     await bundle.save(sessionOptions(session));
     const remarks = good > 0 ? `good ${good}` : 'all defect';

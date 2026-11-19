@@ -36,6 +36,8 @@
     "orders:clear": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/clear-production-orders.js",
     "seed:vertical-cut-demo": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/seed-vertical-cut-demo.js",
     "seed:production-catalog-demo": "node --disable-warning=DEP0170 scripts/seedProductionCatalogDemo.js",
+    "seed:floor-equipment": "node --disable-warning=DEP0170 scripts/seedFloorEquipment.js",
+    "seed:floor-racks": "node --disable-warning=DEP0170 scripts/seedFloorRacks.js",
     "patch:qc-processes": "node --disable-warning=DEP0170 scripts/patchQcProcessMasters.js",
     "seed:demo-plain-hanky-order": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/seed-demo-plain-hanky-order.js",
     "seed:demo-embroidery-order": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/seed-demo-embroidery-order.js",

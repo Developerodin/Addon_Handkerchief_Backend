@@ -11,6 +11,7 @@ import Process from '../src/models/process.model.js';
 import Product from '../src/models/product.model.js';
 import RawMaterial from '../src/models/rawMaterial.model.js';
 import { publishItemDefinition } from '../src/services/catalogPublish.service.js';
+import Machine from '../src/models/machine.model.js';
 
 dotenv.config();
 

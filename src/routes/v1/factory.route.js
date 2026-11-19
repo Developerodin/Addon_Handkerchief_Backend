@@ -323,6 +323,7 @@ router.get('/production/single-piece/upcoming', ...screens('read', FLOOR_SCREENS
 router.post('/production/single-piece/start', ...screens('create', FLOOR_SCREENS), factory.startSinglePiece);
 router.post('/production/single-piece/cut', ...screens('create', FLOOR_SCREENS), factory.cutSinglePiece);
 router.post('/production/single-piece/close', ...screens('create', FLOOR_SCREENS), factory.closeSinglePiece);
+router.post('/production/single-piece/open/reclassify-m4', ...screens('create', FLOOR_SCREENS), factory.reclassifySinglePieceOpenAsM4);
 router.post('/production/single-piece/place', ...screens('create', FLOOR_SCREENS), factory.placeSinglePiece);
 router.get('/production/horizontal-hem/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingHorizontalHem);
 router.post('/production/horizontal-hem/start', ...screens('create', FLOOR_SCREENS), factory.startHorizontalHem);

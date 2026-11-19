@@ -1,4 +1,5 @@
 import { PieceBundle, ProductionOrder } from '../../models/production.model.js';
+import { QualityResult } from '../../models/quality.model.js';
 import { completedBundlesFromLogs } from './floorCompleted.js';
 
 const STILL_AT_SINGLE_PIECE = {
@@ -27,15 +28,40 @@ function hemBlockers(row) {
  * @param {object[]} rows
  * @param {Map<string, string>} numbers
  */
-function mapRows(rows, numbers) {
+async function floorGoodQtyMap(bundleIds) {
+  if (!bundleIds.length) return new Map();
+  const checks = await QualityResult.find({
+    kind: 'bundle-check',
+    bundleId: { $in: bundleIds.map(String) },
+  })
+    .sort({ createdAt: -1 })
+    .select('bundleId goodQty')
+    .lean();
+  const map = new Map();
+  for (const row of checks) {
+    const id = String(row.bundleId);
+    if (!map.has(id)) map.set(id, Number(row.goodQty) || 0);
+  }
+  return map;
+}
+
+function displayQty(row, floorGood) {
+  const finalGood = Number(row.finalGood) || 0;
+  if (finalGood > 0) return finalGood;
+  if (floorGood > 0) return floorGood;
+  return Number(row.qty) || 0;
+}
+
+function mapRows(rows, numbers, floorGoodById) {
   return rows.map((row) => {
     const blockers = hemBlockers(row);
+    const id = String(row._id || row.id);
     return {
-      id: String(row._id || row.id),
+      id,
       barcode: row.barcode,
       orderId: String(row.orderId),
       orderNumber: numbers.get(String(row.orderId)) || '',
-      qty: row.qty || 0,
+      qty: displayQty(row, floorGoodById.get(id) || 0),
       rackCode: row.rackCode || '',
       readyForHorizontalHem: blockers.length === 0,
       blockers,
@@ -85,6 +111,9 @@ export const upcomingFloorChecks = async () => {
     : [];
   const numbers = new Map(orders.map((order) => [String(order._id), order.orderNumber || '']));
 
+  const allIds = [...onRack, ...pendingRack, ...received].map((row) => String(row._id || row.id));
+  const floorGoodById = await floorGoodQtyMap(allIds);
+
   const completed = await completedBundlesFromLogs(['bundle-check']);
   const checkedBarcodes = [...new Set(completed.map((row) => row.barcode).filter(Boolean))];
   const completedBundles = checkedBarcodes.length
@@ -104,12 +133,12 @@ export const upcomingFloorChecks = async () => {
     };
   });
 
-  const receivedAll = mapRows(received, numbers);
+  const receivedAll = mapRows(received, numbers, floorGoodById);
   const receivedNeedsAttention = receivedAll.filter((row) => !row.readyForHorizontalHem);
 
   return {
-    results: mapRows(onRack, numbers),
-    pendingPlacement: mapRows(pendingRack, numbers),
+    results: mapRows(onRack, numbers, floorGoodById),
+    pendingPlacement: mapRows(pendingRack, numbers, floorGoodById),
     received: receivedNeedsAttention,
     completed: completedEnriched,
     counts: {

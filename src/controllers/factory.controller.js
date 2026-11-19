@@ -115,6 +115,7 @@ export const placeVerticalHem = send(verticalHem.placeVerticalHem);
 export const startSinglePiece = send(singlePiece.startSinglePiece);
 export const cutSinglePiece = send(singlePiece.cutSinglePiece, httpStatus.CREATED);
 export const closeSinglePiece = send(singlePiece.closeSinglePiece);
+export const reclassifySinglePieceOpenAsM4 = send(singlePiece.reclassifyOpenAsM4);
 export const placeSinglePiece = send(singlePiece.placeSinglePiece);
 export const startHorizontalHem = send(horizontalHem.startHorizontalHem);
 export const placeHorizontalHem = send(horizontalHem.placeHorizontalHem);

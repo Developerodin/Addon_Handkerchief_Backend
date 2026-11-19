@@ -18,6 +18,11 @@ const machineSchema = mongoose.Schema(
       default: '',
     },
     floor: { type: String, trim: true, default: '' },
+    equipmentRole: {
+      type: String,
+      enum: ['machine', 'table'],
+      default: 'machine',
+    },
     capacityPerShift: { type: Number, min: 0, default: 0 },
     maintenanceIntervalMonths: { type: Number, min: 0, default: 3 },
     lastMaintenanceDate: { type: Date, default: null },
@@ -44,6 +49,15 @@ machineSchema.index(
   { barcode: 1 },
   { unique: true, partialFilterExpression: { barcode: { $gt: '' } } }
 );
+
+/** Production scans use the catalog id when no explicit barcode is set. */
+machineSchema.pre('save', function assignScanBarcode(next) {
+  if (!this.barcode?.trim()) {
+    this.barcode = String(this._id);
+  }
+  next();
+});
+
 machineSchema.plugin(toJSON);
 machineSchema.plugin(paginate);
 

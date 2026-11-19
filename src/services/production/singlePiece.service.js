@@ -331,6 +331,45 @@ export const cutSinglePiece = async (body, _params, user) => {
  * @param {object} [_params]
  * @param {object | null} [user]
  */
+/**
+ * Moves good qty from the order open bundle into M4 (not reusable for 60-bundles).
+ * @param {{ orderId?: string, qty?: number, all?: boolean }} body
+ */
+export const reclassifyOpenAsM4 = async (body, _params, user) => {
+  const orderId = String(body.orderId || '').trim();
+  if (!orderId) throw new ApiError(httpStatus.BAD_REQUEST, 'Order is required');
+  const bundle = await PieceBundle.findOne({ orderId, closed: false }).sort({ number: -1 });
+  if (!bundle || bundle.qty < 1) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'No leftover good quantity in the open bundle');
+  }
+  const moveAll = body.all === true;
+  const amount = moveAll ? bundle.qty : wholeCount(body.qty, 'Quantity');
+  if (amount < 1 || amount > bundle.qty) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Quantity must be between 1 and the leftover in the open bundle');
+  }
+  return runTransaction(async (session) => {
+    bundle.qty -= amount;
+    bundle.m4Qty = (Number(bundle.m4Qty) || 0) + amount;
+    await bundle.save(sessionOptions(session));
+    await writeOrderLog(
+      {
+        action: 'single-piece-m4-leftover',
+        orderId: bundle.orderId,
+        entityType: 'bundle',
+        entityCode: bundle.barcode || `open-${bundle.number}`,
+        quantity: amount,
+        fromLocation: '',
+        toLocation: '',
+        remarks: `leftover to m4`,
+      },
+      user,
+      session
+    );
+    const orderNumbers = await orderNumbersFor([String(bundle.orderId)]);
+    return shapeBundle(bundle, orderNumbers);
+  });
+};
+
 export const closeSinglePiece = async (body, _params, user) => {
   const orderId = String(body.orderId || '').trim();
   if (!orderId) throw new ApiError(httpStatus.BAD_REQUEST, 'Order is required');

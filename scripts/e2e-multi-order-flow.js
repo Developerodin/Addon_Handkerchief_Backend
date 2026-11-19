@@ -407,16 +407,14 @@ async function walkPieceToBundle(orderId, rollBarcode, pieceBarcode) {
   return { bundleBarcode, bundle };
 }
 
-async function finalQcIronNormal(bundleBarcode, { good = BUNDLE_SIZE, long = 0 } = {}) {
+async function finalQcIronNormal(bundleBarcode, { long = 0 } = {}) {
   let res = await request('POST', '/quality/final-qc', {
     bundleBarcode,
-    good,
     long,
     hemming: 0,
     sporting: 0,
     diving: 0,
-    rejection: long ? 0 : 0,
-    racks: long > 0 ? { long: RACK_BUNDLE_B } : {},
+    rejection: 0,
   });
   if (long > 0) {
     expectStatus(res, 200, 'final-qc with long');

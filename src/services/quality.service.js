@@ -275,11 +275,15 @@ export const recordBundleCheck = async (body, _params, user) => {
   }
   const existing = await QualityResult.findOne({ eventId: body.eventId });
   if (existing) return existing;
-  const allGood = goodQty === bundle.qty;
+  const bundleQtyBeforeCheck = bundle.qty;
+  const allGood = goodQty === bundleQtyBeforeCheck;
   return runTransaction(async (session) => {
     bundle.floorChecked = true;
     // Dev/testing: completed floor check can proceed to horizontal hemming even with M2/M4 split.
     bundle.checkedGood = true;
+    // Only good qty continues to horizontal hemming; M2/M4 stay on the quality record.
+    bundle.finalGood = goodQty;
+    bundle.qty = goodQty;
     await bundle.save(sessionOptions(session));
     const [result] = await QualityResult.create(
       [
