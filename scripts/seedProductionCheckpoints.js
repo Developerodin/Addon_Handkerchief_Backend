@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import User from '../src/models/user.model.js';
-import { CheckpointItem, CheckpointModule } from '../src/models/checkpoint.model.js';
+import { CheckpointItem, CheckpointModule, CheckpointLog } from '../src/models/checkpoint.model.js';
 
 dotenv.config();
 
@@ -42,6 +42,10 @@ const FEATURES = [
   ['Fabric issue', 'Mark line complete', 'Per-article fabric issue status moves to completed when enough metres are issued.'],
   ['Fabric issue', 'All issued', 'When every line is complete, order fabric issue is all-issued and vertical cutting can start.'],
   ['Fabric issue', 'Bypass for demo', 'Optional bypass marks fabric issued without stock movement (dev/demo only).'],
+  ['Machines & racks', 'Assign production floor', 'Catalog → Machines: production floor dropdown and Machine or Table. Each floor console lists only matching equipment.'],
+  ['Machines & racks', 'Print machine barcodes', 'Catalog machines: per-row or bulk Print barcode (QZ Tray 50×25 mm or browser preview).'],
+  ['Machines & racks', 'Production racks by floor', 'Catalog → Production racks: assign production floor, filter list, print rack barcodes.'],
+  ['Machines & racks', 'Seed floor masters', 'npm run seed:floor-equipment and seed:floor-racks upsert 2 machines + 2 tables and 4 racks per production floor.'],
   ['Vertical cutting', 'Upcoming rolls', 'Issued rolls waiting to be cut at /production/floor/vertical-cutting.'],
   ['Vertical cutting', 'Scan roll', 'Open a job by scanning the roll barcode or roll code. The roll must be issued to an open order.'],
   ['Vertical cutting', 'Cut', 'Cut the roll into the planned piece count. Each piece gets its own barcode.'],
@@ -140,9 +144,12 @@ const CHECKPOINTS = FEATURES.map(([screen, feature, detail]) => row(screen, feat
  * First argument wins. Otherwise MONGODB_URL from the shell, then .env.
  * @returns {string}
  */
+const wantsReplace = () => process.argv.includes('--replace');
+
 const mongoUrl = () => {
-  const fromArg = process.argv[2];
-  if (fromArg && !fromArg.startsWith('-')) return fromArg;
+  const fromArg = process.argv.find((a) => a && !a.startsWith('-') && a.includes('mongodb'));
+  if (fromArg) return fromArg;
+  if (process.env.MONGODB_ATLAS_URL) return process.env.MONGODB_ATLAS_URL;
   if (process.env.MONGODB_URL) return process.env.MONGODB_URL;
   return 'mongodb://127.0.0.1:27017/handkerchief';
 };
@@ -283,12 +290,60 @@ const syncSortOrder = async (moduleDoc) => {
 };
 
 /**
+ * Removes every Production checklist row and its sign-off logs (module row is kept).
+ * @param {import('mongoose').Document} moduleDoc
+ * @returns {Promise<{ items: number, logs: number }>}
+ */
+const replaceAllItems = async (moduleDoc) => {
+  const itemIds = await CheckpointItem.find({ moduleId: moduleDoc._id }).select('_id').lean();
+  const ids = itemIds.map((d) => d._id);
+  const logsResult = await CheckpointLog.deleteMany({
+    $or: [{ moduleId: moduleDoc._id }, { itemId: { $in: ids } }],
+  });
+  const itemsResult = await CheckpointItem.deleteMany({ moduleId: moduleDoc._id });
+  return { items: itemsResult.deletedCount ?? 0, logs: logsResult.deletedCount ?? 0 };
+};
+
+/**
+ * Inserts every row from CHECKPOINTS (used after --replace).
+ * @param {import('mongoose').Document} moduleDoc
+ * @returns {Promise<string[]>}
+ */
+const insertAllItems = async (moduleDoc) => {
+  const titles = [];
+  for (let index = 0; index < CHECKPOINTS.length; index += 1) {
+    const checkpoint = CHECKPOINTS[index];
+    await CheckpointItem.create({
+      moduleId: moduleDoc._id,
+      title: checkpoint.title,
+      description: checkpoint.description,
+      sortOrder: (index + 1) * 10,
+    });
+    titles.push(checkpoint.title);
+  }
+  return titles;
+};
+
+/**
  * Seeds Production feature rows. Safe to run again: existing titles keep their checks.
+ * Pass --replace to drop all Production items on the target DB and insert the seed list only.
  */
 const seedProductionCheckpoints = async () => {
   const safeUrl = await connect();
   const owner = await findOwner();
   const { doc, created: moduleCreated } = await ensureModule(owner);
+
+  if (wantsReplace()) {
+    const removed = await replaceAllItems(doc);
+    const created = await insertAllItems(doc);
+    console.log(`Database: ${safeUrl}`);
+    console.log(`Module: ${MODULE_NAME} (${moduleCreated ? 'created' : 'already present'})`);
+    console.log(`Mode: --replace (wiped ${removed.items} items, ${removed.logs} logs)`);
+    console.log(`Inserted ${created.length} checklist rows`);
+    await mongoose.disconnect();
+    return;
+  }
+
   const { created, skipped, updated } = await ensureItems(doc);
   await syncSortOrder(doc);
 

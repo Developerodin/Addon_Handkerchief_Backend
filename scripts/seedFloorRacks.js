@@ -57,8 +57,8 @@ function buildFloorRacks() {
 }
 
 async function main() {
-  const url = process.env.MONGODB_URL;
-  if (!url) throw new Error('MONGODB_URL is required');
+  const url = process.argv[2] || process.env.MONGODB_ATLAS_URL || process.env.MONGODB_URL;
+  if (!url) throw new Error('MONGODB_URL or MONGODB_ATLAS_URL is required (or pass URL as argv[2])');
 
   await mongoose.connect(url, { useNewUrlParser: true, useUnifiedTopology: true });
 

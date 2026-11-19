@@ -50,7 +50,8 @@
     "e2e:production-gate": "npm run e2e:multi-order-flow && npm run e2e:dispatch-orders",
     "e2e:production-gate-full": "npm run e2e:multi-order-flow && npm run e2e:ten-floor-dispatch && npm run e2e:dispatch-orders",
     "rollback:bundle-iron": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/rollback-bundle-for-iron.js",
-    "rollback:bundle-emb-thread": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/rollback-bundle-for-embroidery-thread.js"
+    "rollback:bundle-emb-thread": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/rollback-bundle-for-embroidery-thread.js",
+    "sync:ec2-to-atlas": "bash scripts/sync-ec2-production-to-atlas.sh"
   },
   "keywords": [
     "node",
