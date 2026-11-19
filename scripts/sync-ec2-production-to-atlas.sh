@@ -4,9 +4,10 @@
 # Uses mongodump + mongorestore (MongoDB Database Tools). Run on your laptop
 # (with network/SSH tunnel to EC2) or directly on the EC2 host.
 #
-# .env (backend):
-#   MONGODB_EC2_URL     — source (e.g. mongodb://127.0.0.1:27017/handkerchief on EC2)
-#   MONGODB_ATLAS_URL   — target (e.g. mongodb+srv://…/test?…)
+# .env on production EC2:
+#   MONGODB_URL         — source (this server's Mongo, e.g. mongodb://127.0.0.1:27017/handkerchief)
+#   MONGODB_ATLAS_URL   — target Atlas cluster (e.g. mongodb+srv://…/test?…)
+#   MONGODB_EC2_URL     — optional alias for source if MONGODB_URL is unset
 #
 # Examples:
 #   # Preview: dump only, no write to Atlas
@@ -60,15 +61,15 @@ done
 if [[ -f "$ROOT/.env" ]]; then
   set -a
   # shellcheck disable=SC1091
-  source <(grep -E '^(MONGODB_EC2_URL|MONGODB_ATLAS_URL)=' "$ROOT/.env" || true)
+  source <(grep -E '^(MONGODB_URL|MONGODB_EC2_URL|MONGODB_ATLAS_URL)=' "$ROOT/.env" || true)
   set +a
 fi
 
-SOURCE_URI="${SOURCE_URI:-${MONGODB_EC2_URL:-}}"
+SOURCE_URI="${SOURCE_URI:-${MONGODB_URL:-${MONGODB_EC2_URL:-}}}"
 TARGET_URI="${TARGET_URI:-${MONGODB_ATLAS_URL:-}}"
 
 if [[ -z "$SOURCE_URI" ]]; then
-  echo "Set MONGODB_EC2_URL in .env or pass the source URI as the first argument."
+  echo "Set MONGODB_URL (production) in .env or pass the source URI as the first argument."
   exit 1
 fi
 if [[ -z "$TARGET_URI" && "$DRY_RUN" -eq 0 ]]; then
