@@ -14,6 +14,8 @@ import { ProductionOrder, PieceBundle } from '../src/models/production.model.js'
 import { DispatchBox } from '../src/models/warehouse.model.js';
 import { QualityResult } from '../src/models/quality.model.js';
 import * as packingFloor from '../src/services/warehouse/packingFloor.service.js';
+import { shipBoxViaBatch } from '../src/services/warehouse/shipViaBatch.js';
+import * as dispatchShipment from '../src/services/warehouse/dispatchShipment.service.js';
 import { createDraft, releaseDraft } from '../src/services/production/orderRaise.service.js';
 import { bypassFabricIssueForOrder } from '../src/services/factory/fabricIssue.service.js';
 import ApiError from '../src/utils/ApiError.js';
@@ -126,7 +128,10 @@ async function packOrderToBox(orderId, { ship = true, vehicle = 'RJ14 E2E' } = {
   await packingFloor.storeBox({ boxBarcode: open.barcode, rackCode: BOX_RACK }, {}, null);
   let shipped = null;
   if (ship) {
-    shipped = await packingFloor.shipBox({ boxBarcode: open.barcode, vehicleNumber: vehicle, eventId: `e2e-ship-${open.barcode}`, site: 'factory' }, {}, null);
+    shipped = await shipBoxViaBatch(
+      { boxBarcode: open.barcode, productionOrderId: String(orderId), vehicleNumber: vehicle, eventId: `e2e-ship-${open.barcode}` },
+      null
+    );
   }
   const order = await ProductionOrder.findById(orderId);
   return { pb, box: open, shipped, order };
@@ -184,9 +189,8 @@ async function main() {
     await packingFloor.weighBox({ boxBarcode: open.barcode, scaleWeight: 3 });
     await packingFloor.markBoxReady({ boxBarcode: open.barcode }, {}, null);
     await packingFloor.storeBox({ boxBarcode: open.barcode, rackCode: BOX_RACK }, {}, null);
-    await packingFloor.shipBox(
-      { boxBarcode: open.barcode, vehicleNumber: 'LONE-1', eventId: `lone-${open.barcode}`, site: 'factory' },
-      {},
+    await shipBoxViaBatch(
+      { boxBarcode: open.barcode, productionOrderId: String(lone.id), vehicleNumber: 'LONE-1', eventId: `lone-${open.barcode}` },
       null
     );
     const fresh = await ProductionOrder.findById(lone.id);
@@ -250,12 +254,70 @@ async function main() {
     }
   });
 
-  await step('Second box stays on rack until shipped (partial pipeline)', async () => {
+  await step('Dispatch batch: partial load then second batch', async () => {
     const partial = orders.find((row) => row.partialTarget);
     if (!partial) return;
-    const order = await ProductionOrder.findById(partial.id);
-    if (Number(order.dispatchedQty) !== TARGET || order.dispatchStatus !== 'partial') {
-      throw new Error(`Partial order should be ${TARGET}/${order.targetQty} partial, got ${order.dispatchedQty} ${order.dispatchStatus}`);
+    const onRack = await DispatchBox.find({ productionOrderId: partial.id, status: 'on-rack' });
+    if (!onRack.length) {
+      const extraBarcode = `BD-E2E-P2-${String(partial.id).slice(-6)}`;
+      let bundle = await PieceBundle.findOne({ barcode: extraBarcode });
+      if (!bundle) {
+        bundle = await PieceBundle.create({
+          orderId: partial.id,
+          number: 2,
+          qty: TARGET,
+          finalGood: TARGET,
+          packedQty: 0,
+          closed: true,
+          barcode: extraBarcode,
+          rackCode: PACK_RACK,
+          status: 'closed',
+          process: 'broken',
+          route: 'normal',
+          checkedGood: true,
+        });
+        await QualityResult.create({
+          eventId: `e2e-fc-${extraBarcode}`,
+          kind: 'final-checking',
+          bundleId: String(bundle.id),
+          orderId: partial.id,
+          goodQty: TARGET,
+          defectQty: 0,
+          rackCode: PACK_RACK,
+          passed: true,
+        });
+      }
+      const pb = await packingFloor.packPieces({ bundleBarcode: bundle.barcode, pieceCount: TARGET, scaleWeight: 2 }, {}, null);
+      const open = await packingFloor.openBox({}, {}, null);
+      await packingFloor.addBundleToBox({ boxBarcode: open.barcode, packingBundleBarcode: pb.barcode }, {}, null);
+      await packingFloor.weighBox({ boxBarcode: open.barcode, scaleWeight: 5 });
+      await packingFloor.markBoxReady({ boxBarcode: open.barcode }, {}, null);
+      await packingFloor.storeBox({ boxBarcode: open.barcode, rackCode: BOX_RACK }, {}, null);
+      onRack.push(open);
+    }
+    const box = onRack[0];
+    await shipBoxViaBatch(
+      { boxBarcode: box.barcode, productionOrderId: partial.id, vehicleNumber: 'BATCH-2', eventId: `e2e-batch2-${box.barcode}` },
+      null
+    );
+    const after = await ProductionOrder.findById(partial.id);
+    if (after.dispatchStatus !== 'complete') {
+      throw new Error(`Second batch should complete order, got ${after.dispatchStatus} (${after.dispatchedQty}/${after.targetQty})`);
+    }
+    const batches = await dispatchShipment.listShipments({ productionOrderId: partial.id, status: 'dispatched' });
+    if (batches.results.length < 2) throw new Error('Expected at least 2 dispatched batches on partial order');
+  });
+
+  await step('Close dispatch tracking hides order when no rack stock', async () => {
+    const target = orders[0];
+    if (!target) return;
+    const onRack = await DispatchBox.countDocuments({ productionOrderId: target.id, status: 'on-rack' });
+    if (onRack > 0) return;
+    await dispatchShipment.closeDispatchTracking({}, { orderId: target.id }, null);
+    const { dispatchOrdersSummary } = await import('../src/services/warehouse/orderDispatch.js');
+    const summary = await dispatchOrdersSummary();
+    if (summary.results.some((row) => row.orderId === target.id)) {
+      throw new Error('Closed order should drop from dispatch summary when nothing on rack');
     }
   });
 

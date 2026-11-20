@@ -36,6 +36,7 @@ const FLOOR_SCREENS = [
   'Production / Bundle',
   'Production / Horizontal hemming',
   'Production / Horizontal hem',
+  'Production / Inline checking',
   'Production / Thread cutting',
   'Production / Thread cut',
   'Production / Ironing',
@@ -328,10 +329,16 @@ router.post('/production/single-piece/place', ...screens('create', FLOOR_SCREENS
 router.get('/production/horizontal-hem/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingHorizontalHem);
 router.post('/production/horizontal-hem/start', ...screens('create', FLOOR_SCREENS), factory.startHorizontalHem);
 router.post('/production/horizontal-hem/place', ...screens('create', FLOOR_SCREENS), factory.placeHorizontalHem);
+router.get('/production/inline-check/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingInlineCheck);
+router.get('/production/inline-check/lookup', ...screens('read', FLOOR_SCREENS), factory.lookupInlineCheckBundle);
+router.get('/production/inline-check/machines', ...screens('read', FLOOR_SCREENS), factory.listInlineCheckMachines);
+router.post('/production/inline-check/record', ...screens('create', FLOOR_SCREENS), factory.recordInlineCheck);
 router.get('/production/thread-cut/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingThreadCut);
 router.post('/production/thread-cut/start', ...screens('create', FLOOR_SCREENS), factory.startThreadCut);
 router.post('/production/thread-cut/place', ...screens('create', FLOOR_SCREENS), factory.placeThreadCut);
 router.get('/quality/final-qc/upcoming', ...screens('read', [FLOOR_QC, FINAL_QC]), factory.upcomingFinalQc);
+router.post('/quality/final-qc/inspect', ...screens('create', [FLOOR_QC, FINAL_QC]), factory.recordFinalQcInspect);
+router.post('/quality/final-qc/pass', ...screens('create', [FLOOR_QC, FINAL_QC]), factory.recordFinalQcPass);
 router.post('/quality/final-qc', ...screens('create', [FLOOR_QC, FINAL_QC]), factory.recordFinalQc);
 router.get('/production/to-ground/upcoming', ...screens('read', FLOOR_SCREENS), factory.upcomingToGround);
 router.post('/production/to-ground/place', ...screens('create', FLOOR_SCREENS), factory.placeToGround);
@@ -353,6 +360,8 @@ router.get('/production/iron-after/upcoming', ...screens('read', FLOOR_SCREENS),
 router.post('/production/iron-after/start', ...screens('create', FLOOR_SCREENS), factory.startIronAfter);
 router.post('/production/iron-after/place', ...screens('create', FLOOR_SCREENS), factory.placeIronAfter);
 router.get('/quality/final-checking/upcoming', ...screens('read', [FLOOR_QC, FINAL_CHECKING]), factory.upcomingFinalChecking);
+router.post('/quality/final-checking/inspect', ...screens('create', [FLOOR_QC, FINAL_CHECKING]), factory.recordFinalCheckingInspect);
+router.post('/quality/final-checking/pass', ...screens('create', [FLOOR_QC, FINAL_CHECKING]), factory.recordFinalCheckingPass);
 router.post('/quality/final-checking', ...screens('create', [FLOOR_QC, FINAL_CHECKING]), factory.recordFinalChecking);
 router.post('/production/bundles/close', ...screens('create', FLOOR_SCREENS), factory.closeBundle);
 router.post('/production/bundles/:bundleId/hem', ...screens('update', FLOOR_SCREENS), factory.hemBundle);
@@ -370,6 +379,9 @@ router.post('/quality/rolls/pass', ...guard(FABRIC_QC, 'update'), factory.passQc
 router.post('/quality/rolls/reject', ...guard(FABRIC_QC, 'update'), factory.rejectQcRoll);
 router.post('/quality/roll-rejections', ...guard(FLOOR_QC, 'create'), factory.rejectRoll);
 router.get('/quality/floor/upcoming', ...guard(FLOOR_QC, 'read'), factory.upcomingFloorChecks);
+router.get('/quality/floor/defect-logs', ...guard(FLOOR_QC, 'read'), factory.floorDefectLogs);
+router.post('/quality/bundle-checks/inspect', ...guard(FLOOR_QC, 'create'), factory.bundleCheckInspect);
+router.post('/quality/bundle-checks/pass', ...guard(FLOOR_QC, 'create'), factory.bundleCheckPass);
 router.post('/quality/bundle-checks', ...guard(FLOOR_QC, 'create'), factory.bundleCheck);
 router.post('/quality/final-checks', ...guard(FLOOR_QC, 'create'), factory.finalCheck);
 
@@ -422,6 +434,13 @@ router.get('/warehouse/dispatch/upcoming', ...guard(DISPATCH, 'read'), factory.u
 router.get('/warehouse/dispatch/orders', ...guard(DISPATCH, 'read'), factory.dispatchOrdersSummary);
 router.get('/warehouse/dispatch/order/:orderId', ...guard(DISPATCH, 'read'), factory.dispatchPackForOrder);
 router.post('/warehouse/dispatch/ship', ...guard(DISPATCH, 'create'), factory.shipBox);
+router.post('/warehouse/dispatch/shipments', ...guard(DISPATCH, 'create'), factory.createDispatchShipment);
+router.get('/warehouse/dispatch/shipments', ...guard(DISPATCH, 'read'), factory.listDispatchShipments);
+router.get('/warehouse/dispatch/shipments/:id', ...guard(DISPATCH, 'read'), factory.getDispatchShipment);
+router.post('/warehouse/dispatch/shipments/:id/scan', ...guard(DISPATCH, 'update'), factory.scanDispatchShipment);
+router.delete('/warehouse/dispatch/shipments/:id/lines/:barcode', ...guard(DISPATCH, 'update'), factory.removeDispatchShipmentLine);
+router.post('/warehouse/dispatch/shipments/:id/dispatch', ...guard(DISPATCH, 'create'), factory.dispatchDispatchShipment);
+router.post('/warehouse/dispatch/order/:orderId/close-tracking', ...guard(DISPATCH, 'update'), factory.closeDispatchTracking);
 router.get('/warehouse/boxes/:boxBarcode/trace', ...guard(DISPATCH, 'read'), factory.traceBox);
 
 router.get('/accounts/invoices', ...guard(INVOICES, 'read'), factory.listInvoices);

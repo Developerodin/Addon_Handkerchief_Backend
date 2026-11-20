@@ -10,7 +10,6 @@ import ProductionRack from '../../models/productionRack.model.js';
 import { nextCode } from '../factory/ids.js';
 import { orderMap, rackOfType, shapeBundle } from '../production/bundleFloor.js';
 import { writeOrderLog } from '../orderLog.service.js';
-import { syncProductionOrderDispatch } from './orderDispatch.js';
 
 /**
  * Whole count, or zero when the field is blank.
@@ -572,52 +571,9 @@ export const upcomingDispatch = async () => {
  * @param {object} [_params]
  * @param {object | null} [user]
  */
-export const shipBox = async (body, _params, user) => {
-  if (body.site === 'cloud') throw new ApiError(httpStatus.FORBIDDEN, 'Cloud cannot dispatch a box');
-  const vehicle = String(body.vehicleNumber || '').trim();
-  if (!vehicle) throw new ApiError(httpStatus.BAD_REQUEST, 'Vehicle number is required');
-  const eventId = String(body.eventId || '').trim();
-  if (!eventId) throw new ApiError(httpStatus.BAD_REQUEST, 'Event is required');
-  const existing = await DispatchBox.findOne({ eventId });
-  if (existing) return existing;
-  const box = await DispatchBox.findOne({ barcode: String(body.boxBarcode || '').trim() });
-  if (!box || box.status !== 'on-rack') throw new ApiError(httpStatus.BAD_REQUEST, 'This box is not on a rack');
-  const order = box.clientOrderId ? await ClientOrder.findById(box.clientOrderId) : null;
-  const fromRack = box.rackCode;
-  box.eventId = eventId;
-  box.status = 'dispatched';
-  box.vehicleNumber = vehicle;
-  box.clientAddress = order?.clientAddress || box.clientAddress || '';
-  await box.save();
-  await StockMovement.create({
-    eventId,
-    entityType: 'box',
-    entityId: box.barcode,
-    kind: 'dispatch',
-    fromLocation: fromRack,
-    toLocation: 'dispatched',
-    quantity: 1,
-    orderId: box.productionOrderId,
-  });
-  await writeOrderLog(
-    {
-      action: 'dispatch',
-      orderId: box.productionOrderId,
-      entityType: 'box',
-      entityCode: box.barcode,
-      fromLocation: fromRack,
-      toLocation: 'dispatched',
-      remarks: vehicle,
-    },
-    user
+export const shipBox = async () => {
+  throw new ApiError(
+    httpStatus.GONE,
+    'Single-box dispatch is retired. Create a dispatch batch, scan boxes, and dispatch the batch.'
   );
-  if (order) {
-    const left = await DispatchBox.countDocuments({ clientOrderId: order.id, status: { $ne: 'dispatched' } });
-    order.status = left > 0 ? 'partially-dispatched' : 'dispatched';
-    await order.save();
-  }
-  if (box.productionOrderId) {
-    await syncProductionOrderDispatch(box.productionOrderId, user);
-  }
-  return shapeDispatchBox(box);
 };

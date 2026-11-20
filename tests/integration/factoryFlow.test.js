@@ -981,12 +981,12 @@ describe('Factory flow', () => {
         .set(auth)
         .send({ pieces: [{ barcode: 'PC-SP-1', goodQty: 61, m4Qty: 3 }] })
         .expect(httpStatus.CREATED);
-      expect(cut.body.closed).toHaveLength(1);
-      expect(cut.body.closed[0].qty).toBe(60);
-      expect(cut.body.closed[0].barcode.startsWith('BD-')).toBe(true);
-      expect(cut.body.open).toHaveLength(1);
-      expect(cut.body.open[0].qty).toBe(1);
-      expect(cut.body.open[0].barcode).toBe('');
+      expect(cut.body.closed).toHaveLength(2);
+      const fullBundle = cut.body.closed.find((row) => row.qty === 60);
+      const partialBundle = cut.body.closed.find((row) => row.qty === 1);
+      expect(fullBundle.barcode.startsWith('BD-')).toBe(true);
+      expect(partialBundle.barcode.startsWith('BD-')).toBe(true);
+      expect(cut.body.open).toHaveLength(0);
       const piece = await CutPiece.findOne({ barcode: 'PC-SP-1' });
       expect(piece.status).toBe('bundled');
       expect(piece.goodQty).toBe(61);
@@ -995,27 +995,17 @@ describe('Factory flow', () => {
       const bundles = await PieceBundle.find({ orderId: order.body.id });
       expect(bundles.reduce((sum, row) => sum + row.qty, 0)).toBe(61);
 
-      const closed = await api
-        .post('/v1/production/single-piece/close')
-        .set(auth)
-        .send({ orderId: order.body.id })
-        .expect(httpStatus.OK);
-      expect(closed.body.qty).toBe(1);
-      expect(closed.body.closed).toBe(true);
-      expect(closed.body.barcode.startsWith('BD-')).toBe(true);
-      expect(closed.body.checkedGood).toBe(false);
-
       await api
         .post('/v1/production/single-piece/place')
         .set(auth)
-        .send({ bundleBarcodes: [closed.body.barcode], rackCode: 'PF-SP' })
+        .send({ bundleBarcodes: [partialBundle.barcode], rackCode: 'PF-SP' })
         .expect(httpStatus.BAD_REQUEST);
 
       await StorageRack.create({ code: 'BDL-SP', name: 'Bundle rack', stockType: 'bundles', barcode: 'BDL-SP' });
       const placed = await api
         .post('/v1/production/single-piece/place')
         .set(auth)
-        .send({ bundleBarcodes: [closed.body.barcode], rackCode: 'BDL-SP' })
+        .send({ bundleBarcodes: [partialBundle.barcode], rackCode: 'BDL-SP' })
         .expect(httpStatus.OK);
       expect(placed.body[0].rackCode).toBe('BDL-SP');
       expect(placed.body[0].checkedGood).toBe(false);
@@ -1065,6 +1055,85 @@ describe('Factory flow', () => {
       expect(cut.body.open || []).toHaveLength(0);
       const piece = await CutPiece.findOne({ barcode: 'PC-SP-BULK' });
       expect(piece.goodQty).toBe(600);
+    },
+    60000
+  );
+
+  test(
+    'floor check inspect then pass with top-up and partial pass qty reaches horizontal hemming',
+    async () => {
+      const order = await api
+        .post('/v1/production/orders')
+        .set(auth)
+        .send({ productionType: 'normal', revisionId: 'V1', targetQty: 60, priority: 'Medium' })
+        .expect(httpStatus.CREATED);
+      await StorageRack.create({ code: 'BDL-FC', name: 'Bundle rack', stockType: 'bundles', barcode: 'BDL-FC' });
+      const bundleRow = await PieceBundle.create({
+        orderId: order.body.id,
+        number: 1,
+        qty: 60,
+        closed: true,
+        barcode: 'BD-FC-1',
+        rackCode: 'BDL-FC',
+        status: 'closed',
+        process: 'created',
+      });
+      const insp = await api
+        .post('/v1/quality/bundle-checks/inspect')
+        .set(auth)
+        .send({ bundleId: String(bundleRow.id), m2Qty: 2, m4Qty: 3, eventId: 'fc-insp-1' })
+        .expect(httpStatus.CREATED);
+      expect(insp.body.inspectionGoodQty).toBe(55);
+      expect(insp.body.phase).toBe('inspected');
+      const refreshed = await PieceBundle.findById(bundleRow.id);
+      expect(refreshed.floorInspected).toBe(true);
+      expect(refreshed.floorChecked).not.toBe(true);
+
+      const upcoming = await api.get('/v1/quality/floor/upcoming').set(auth).expect(httpStatus.OK);
+      expect(upcoming.body.awaitingPass?.find((row) => row.barcode === 'BD-FC-1')).toBeTruthy();
+      expect(upcoming.body.results?.find((row) => row.barcode === 'BD-FC-1')).toBeFalsy();
+
+      const passed = await api
+        .post('/v1/quality/bundle-checks/pass')
+        .set(auth)
+        .send({ bundleId: String(bundleRow.id), goodAddedQty: 5, passGoodQty: 60, eventId: 'fc-pass-1' })
+        .expect(httpStatus.CREATED);
+      expect(passed.body.passGoodQty).toBe(60);
+      expect(passed.body.phase).toBe('passed');
+
+      const after = await PieceBundle.findById(bundleRow.id);
+      expect(after.qty).toBe(60);
+      expect(after.finalGood).toBe(60);
+      expect(after.checkedGood).toBe(true);
+
+      const hem = await api.get('/v1/production/horizontal-hem/upcoming').set(auth).expect(httpStatus.OK);
+      const waiting = hem.body.results.find((row) => row.barcode === 'BD-FC-1');
+      expect(waiting).toBeTruthy();
+      expect(waiting.qty).toBe(60);
+
+      const bundleRow2 = await PieceBundle.create({
+        orderId: order.body.id,
+        number: 2,
+        qty: 45,
+        closed: true,
+        barcode: 'BD-FC-2',
+        rackCode: 'BDL-FC',
+        status: 'closed',
+        process: 'created',
+      });
+      await api
+        .post('/v1/quality/bundle-checks/inspect')
+        .set(auth)
+        .send({ bundleId: String(bundleRow2.id), m2Qty: 0, m4Qty: 0, eventId: 'fc-insp-2' })
+        .expect(httpStatus.CREATED);
+      const partial = await api
+        .post('/v1/quality/bundle-checks/pass')
+        .set(auth)
+        .send({ bundleId: String(bundleRow2.id), goodAddedQty: 0, passGoodQty: 39, eventId: 'fc-pass-2' })
+        .expect(httpStatus.CREATED);
+      expect(partial.body.passGoodQty).toBe(39);
+      const hem2 = await api.get('/v1/production/horizontal-hem/upcoming').set(auth).expect(httpStatus.OK);
+      expect(hem2.body.results.find((row) => row.barcode === 'BD-FC-2')?.qty).toBe(39);
     },
     60000
   );
@@ -1244,6 +1313,108 @@ describe('Factory flow', () => {
   );
 
   test(
+    'inline checking logs hem machine and keeps bundle on horizontal-hem for thread cutting',
+    async () => {
+      const order = await api
+        .post('/v1/production/orders')
+        .set(auth)
+        .send({ productionType: 'normal', revisionId: 'V1', targetQty: 30, priority: 'Medium' })
+        .expect(httpStatus.CREATED);
+      await StorageRack.create({ code: 'BDL-ILC', name: 'Bundle rack', stockType: 'bundles', barcode: 'BDL-ILC' });
+      await Machine.create({ name: 'Inline hem', barcode: 'MC-ILC-2', machineType: 'horizontal-hemming', status: 'active' });
+      await Machine.create({ name: 'Thread cut table', barcode: 'MC-TC-ILC', status: 'active' });
+      await PieceBundle.create({
+        orderId: order.body.id,
+        number: 1,
+        qty: 60,
+        closed: true,
+        barcode: 'BD-ILC-1',
+        rackCode: 'BDL-ILC',
+        checkedGood: true,
+        status: 'closed',
+        process: 'horizontal-hem',
+      });
+      const logged = await api
+        .post('/v1/production/inline-check/record')
+        .set(auth)
+        .send({
+          bundleBarcode: 'BD-ILC-1',
+          hemMachineBarcode: 'MC-ILC-2',
+          rackCode: 'BDL-ILC',
+          confirmed: true,
+        })
+        .expect(httpStatus.OK);
+      expect(logged.body[0].process).toBe('horizontal-hem');
+      expect(logged.body[0].rackCode).toBe('BDL-ILC');
+      await api
+        .post('/v1/production/inline-check/record')
+        .set(auth)
+        .send({
+          bundleBarcode: 'BD-ILC-1',
+          hemMachineBarcode: 'MC-ILC-2',
+          rackCode: 'BDL-ILC',
+          confirmed: true,
+        })
+        .expect(httpStatus.BAD_REQUEST);
+      const started = await api
+        .post('/v1/production/thread-cut/start')
+        .set(auth)
+        .send({ bundleBarcodes: ['BD-ILC-1'], rackCode: 'BDL-ILC', machineBarcode: 'MC-TC-ILC' })
+        .expect(httpStatus.OK);
+      expect(started.body[0].process).toBe('horizontal-hem');
+    },
+    60000
+  );
+
+  test(
+    'final qc inspect then pass with top-up moves bundle to ironing upcoming',
+    async () => {
+      const order = await api
+        .post('/v1/production/orders')
+        .set(auth)
+        .send({ productionType: 'normal', revisionId: 'V1', targetQty: 60, priority: 'Medium' })
+        .expect(httpStatus.CREATED);
+      await StorageRack.create({ code: 'BDL-FQI', name: 'Bundle rack', stockType: 'bundles', barcode: 'BDL-FQI' });
+      const bundleRow = await PieceBundle.create({
+        orderId: order.body.id,
+        number: 1,
+        qty: 60,
+        closed: true,
+        barcode: 'BD-FQI-1',
+        rackCode: 'BDL-FQI',
+        status: 'closed',
+        process: 'thread-cut',
+        checkedGood: true,
+      });
+      const insp = await api
+        .post('/v1/quality/final-qc/inspect')
+        .set(auth)
+        .send({ bundleId: String(bundleRow.id), long: 1, hemming: 0, sporting: 0, diving: 0, rejection: 0 })
+        .expect(httpStatus.CREATED);
+      expect(insp.body.inspectionGoodQty).toBe(59);
+      expect(insp.body.phase).toBe('inspected');
+      const mid = await PieceBundle.findById(bundleRow.id);
+      expect(mid.process).toBe('thread-cut');
+      expect(mid.finalQcInspected).toBe(true);
+
+      const upcoming = await api.get('/v1/quality/final-qc/upcoming').set(auth).expect(httpStatus.OK);
+      expect(upcoming.body.awaitingPass?.find((row) => row.barcode === 'BD-FQI-1')).toBeTruthy();
+      expect(upcoming.body.results?.find((row) => row.barcode === 'BD-FQI-1')).toBeFalsy();
+
+      const passed = await api
+        .post('/v1/quality/final-qc/pass')
+        .set(auth)
+        .send({ bundleId: String(bundleRow.id), goodAddedQty: 1, passGoodQty: 60 })
+        .expect(httpStatus.OK);
+      expect(passed.body.process).toBe('final-qc');
+      expect(passed.body.finalGood).toBe(60);
+      const iron = await api.get('/v1/production/iron/upcoming').set(auth).expect(httpStatus.OK);
+      expect(iron.body.results.find((row) => row.barcode === 'BD-FQI-1')).toBeTruthy();
+    },
+    60000
+  );
+
+  test(
     'final qc rejects counts that do not sum and a zero-good bundle does not move on',
     async () => {
       const order = await api.post('/v1/production/orders').set(auth).send({ productionType: 'normal', revisionId: 'V1', targetQty: 60, priority: 'Medium' }).expect(httpStatus.CREATED);
@@ -1412,16 +1583,29 @@ describe('Factory flow', () => {
       const stored = await api.post('/v1/warehouse/boxes/store').set(auth).send({ boxBarcode: box.body.barcode, rackCode: 'BOX-WH' }).expect(httpStatus.OK);
       expect(stored.body.status).toBe('on-rack');
       expect(stored.body.rackCode).toBe('BOX-WH');
-      await api.post('/v1/warehouse/dispatch/ship').set(auth).send({ boxBarcode: box2.body.barcode, vehicleNumber: 'RJ14', eventId: 'ship-open', site: 'factory' }).expect(httpStatus.BAD_REQUEST);
+      await api.post('/v1/warehouse/dispatch/ship').set(auth).send({ boxBarcode: box2.body.barcode, vehicleNumber: 'RJ14', eventId: 'ship-open', site: 'factory' }).expect(httpStatus.GONE);
       await api.post('/v1/warehouse/boxes/weigh').set(auth).send({ boxBarcode: box2.body.barcode, scaleWeight: 3 }).expect(httpStatus.OK);
       await api.post('/v1/warehouse/boxes/ready').set(auth).send({ boxBarcode: box2.body.barcode }).expect(httpStatus.OK);
       await api.post('/v1/warehouse/boxes/store').set(auth).send({ boxBarcode: box2.body.barcode, rackCode: 'BOX-WH' }).expect(httpStatus.OK);
 
-      const shipped = await api.post('/v1/warehouse/dispatch/ship').set(auth).send({ boxBarcode: box.body.barcode, vehicleNumber: 'RJ14 AB 1', eventId: 'ship-pk-1', site: 'factory' }).expect(httpStatus.OK);
+      const batch = await api.post('/v1/warehouse/dispatch/shipments').set(auth).send({ productionOrderId: order.body.id }).expect(httpStatus.CREATED);
+      await api.post(`/v1/warehouse/dispatch/shipments/${batch.body.id}/scan`).set(auth).send({ boxBarcode: box.body.barcode }).expect(httpStatus.OK);
+      const shipped = await api
+        .post(`/v1/warehouse/dispatch/shipments/${batch.body.id}/dispatch`)
+        .set(auth)
+        .send({ vehicleNumber: 'RJ14 AB 1', eventId: 'ship-pk-1', site: 'factory' })
+        .expect(httpStatus.OK);
       expect(shipped.body.status).toBe('dispatched');
       expect(shipped.body.vehicleNumber).toBe('RJ14 AB 1');
-      expect(shipped.body.clientAddress).toBe('Jaipur');
-      const again = await api.post('/v1/warehouse/dispatch/ship').set(auth).send({ boxBarcode: box.body.barcode, vehicleNumber: 'RJ14 AB 1', eventId: 'ship-pk-1', site: 'factory' }).expect(httpStatus.OK);
+      const boxRow = await DispatchBox.findOne({ barcode: box.body.barcode });
+      expect(boxRow.status).toBe('dispatched');
+      expect(boxRow.vehicleNumber).toBe('RJ14 AB 1');
+      expect(boxRow.clientAddress).toBe('Jaipur');
+      const again = await api
+        .post(`/v1/warehouse/dispatch/shipments/${batch.body.id}/dispatch`)
+        .set(auth)
+        .send({ vehicleNumber: 'RJ14 AB 1', eventId: 'ship-pk-1', site: 'factory' })
+        .expect(httpStatus.OK);
       expect(again.body.id).toBe(shipped.body.id);
       expect((await ClientOrder.findById(clientOrder.body.id)).status).toBe('partially-dispatched');
       expect((await DispatchBox.findOne({ barcode: box2.body.barcode })).status).toBe('on-rack');

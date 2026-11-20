@@ -77,11 +77,11 @@ export const loadBundles = async (codes) => {
 /**
  * @param {object[]} rows
  */
-export const orderMap = async (rows) => {
-  const orders = await ProductionOrder.find({ _id: { $in: [...new Set(rows.map((row) => String(row.orderId)))] } }).select(
-    'orderNumber productionType lines'
-  );
-  return new Map(orders.map((order) => [String(order.id), order]));
+export const orderMap = async (rows, select = 'orderNumber productionType lines') => {
+  const orderIds = [...new Set(rows.map((row) => String(row.orderId)))];
+  if (!orderIds.length) return new Map();
+  const orders = await ProductionOrder.find({ _id: { $in: orderIds } }).select(select).lean();
+  return new Map(orders.map((order) => [String(order._id), order]));
 };
 
 /**
@@ -104,6 +104,7 @@ export const shapeBundle = (row, orders) => {
     id: String(row.id || row._id),
     barcode: row.barcode || '',
     orderId: String(row.orderId),
+    lineId: row.lineId ? String(row.lineId) : '',
     orderNumber: order?.orderNumber || '',
     productionType: order?.productionType || '',
     qty: row.qty || 0,

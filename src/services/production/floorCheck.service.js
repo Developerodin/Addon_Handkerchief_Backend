@@ -11,6 +11,17 @@ const CLOSED_BUNDLE = {
   barcode: { $nin: ['', null] },
 };
 
+const NOT_PASSED = {
+  floorChecked: { $ne: true },
+  checkedGood: { $ne: true },
+};
+
+const QUEUE_BUNDLE_FIELDS =
+  'barcode orderId qty rackCode floorInspected floorChecked checkedGood process closed finalGood updatedAt';
+
+const COMPLETED_BLOCKER_FIELDS =
+  'barcode closed rackCode floorInspected floorChecked checkedGood process';
+
 /**
  * @param {import('mongoose').Document} row
  */
@@ -19,52 +30,74 @@ function hemBlockers(row) {
   if (!row.closed) blockers.push('Close bundle on Single piece cutting');
   if (!row.barcode) blockers.push('Close bundle (missing barcode)');
   if (!String(row.rackCode || '').trim()) blockers.push('Place on a bundles rack');
-  if (!row.checkedGood && !row.floorChecked) blockers.push('Complete floor check counts');
+  if (!row.checkedGood && !row.floorChecked) {
+    if (row.floorInspected) blockers.push('Pass to next floor after top-up');
+    else blockers.push('Complete floor inspection (M2/M4)');
+  }
   if (row.process && row.process !== 'created') blockers.push(`Already at ${row.process}`);
   return blockers;
 }
 
 /**
- * @param {object[]} rows
- * @param {Map<string, string>} numbers
+ * @param {string[]} bundleIds
  */
-async function floorGoodQtyMap(bundleIds) {
+async function floorCheckMetaMap(bundleIds) {
   if (!bundleIds.length) return new Map();
-  const checks = await QualityResult.find({
-    kind: 'bundle-check',
-    bundleId: { $in: bundleIds.map(String) },
-  })
-    .sort({ createdAt: -1 })
-    .select('bundleId goodQty')
-    .lean();
-  const map = new Map();
-  for (const row of checks) {
-    const id = String(row.bundleId);
-    if (!map.has(id)) map.set(id, Number(row.goodQty) || 0);
-  }
-  return map;
+  const checks = await QualityResult.aggregate([
+    { $match: { kind: 'bundle-check', bundleId: { $in: bundleIds.map(String) } } },
+    { $sort: { createdAt: -1 } },
+    {
+      $group: {
+        _id: '$bundleId',
+        bundleId: { $first: '$bundleId' },
+        phase: { $first: '$phase' },
+        goodQty: { $first: '$goodQty' },
+        passGoodQty: { $first: '$passGoodQty' },
+        inspectionGoodQty: { $first: '$inspectionGoodQty' },
+        arrivalQty: { $first: '$arrivalQty' },
+        m2Qty: { $first: '$m2Qty' },
+        m4Qty: { $first: '$m4Qty' },
+        goodAddedQty: { $first: '$goodAddedQty' },
+        articleLabel: { $first: '$articleLabel' },
+        createdAt: { $first: '$createdAt' },
+      },
+    },
+  ]);
+  return new Map(checks.map((row) => [String(row._id), row]));
 }
 
-function displayQty(row, floorGood) {
+function workingQtyFromMeta(row, meta) {
   const finalGood = Number(row.finalGood) || 0;
   if (finalGood > 0) return finalGood;
-  if (floorGood > 0) return floorGood;
+  const phase = meta?.phase || '';
+  if (phase === 'passed') {
+    const pass = Number(meta.passGoodQty) || Number(meta.goodQty) || 0;
+    if (pass > 0) return pass;
+  }
+  if (Number(meta?.arrivalQty) > 0) return Number(meta.arrivalQty);
   return Number(row.qty) || 0;
 }
 
-function mapRows(rows, numbers, floorGoodById) {
+function mapRows(rows, numbers, metaById) {
   return rows.map((row) => {
     const blockers = hemBlockers(row);
     const id = String(row._id || row.id);
+    const meta = metaById.get(id);
     return {
       id,
       barcode: row.barcode,
       orderId: String(row.orderId),
       orderNumber: numbers.get(String(row.orderId)) || '',
-      qty: displayQty(row, floorGoodById.get(id) || 0),
+      qty: workingQtyFromMeta(row, meta),
+      arrivalQty: Number(meta?.arrivalQty) || Number(row.qty) || 0,
       rackCode: row.rackCode || '',
+      floorInspected: Boolean(row.floorInspected),
       readyForHorizontalHem: blockers.length === 0,
       blockers,
+      m2Qty: Number(meta?.m2Qty) || 0,
+      m4Qty: Number(meta?.m4Qty) || 0,
+      inspectionGoodQty: Number(meta?.inspectionGoodQty) || 0,
+      articleLabel: meta?.articleLabel || '',
     };
   });
 }
@@ -77,48 +110,55 @@ export const upcomingFloorChecks = async () => {
     $and: [
       CLOSED_BUNDLE,
       { rackCode: { $nin: ['', null] } },
-      { floorChecked: { $ne: true } },
-      { checkedGood: { $ne: true } },
+      { floorInspected: { $ne: true } },
+      NOT_PASSED,
+      STILL_AT_SINGLE_PIECE,
+    ],
+  };
+  const awaitingPassQuery = {
+    $and: [
+      CLOSED_BUNDLE,
+      { rackCode: { $nin: ['', null] } },
+      { floorInspected: true },
+      NOT_PASSED,
       STILL_AT_SINGLE_PIECE,
     ],
   };
   const pendingRackQuery = {
-    $and: [
-      CLOSED_BUNDLE,
-      { $or: [{ rackCode: '' }, { rackCode: null }, { rackCode: { $exists: false } }] },
-      { floorChecked: { $ne: true } },
-      { checkedGood: { $ne: true } },
-      STILL_AT_SINGLE_PIECE,
-    ],
+    $and: [CLOSED_BUNDLE, { $or: [{ rackCode: '' }, { rackCode: null }, { rackCode: { $exists: false } }] }, NOT_PASSED, STILL_AT_SINGLE_PIECE],
   };
   const receivedQuery = {
-    $and: [
-      CLOSED_BUNDLE,
-      { $or: [{ floorChecked: true }, { checkedGood: true }] },
-      STILL_AT_SINGLE_PIECE,
-    ],
+    $and: [CLOSED_BUNDLE, { $or: [{ floorChecked: true }, { checkedGood: true }] }, STILL_AT_SINGLE_PIECE],
   };
 
-  const [onRack, pendingRack, received] = await Promise.all([
-    PieceBundle.find(onRackQuery).sort({ updatedAt: -1 }).limit(200).lean(),
-    PieceBundle.find(pendingRackQuery).sort({ updatedAt: -1 }).limit(200).lean(),
-    PieceBundle.find(receivedQuery).sort({ updatedAt: -1 }).limit(200).lean(),
+  const queueFind = (query) =>
+    PieceBundle.find(query).select(QUEUE_BUNDLE_FIELDS).sort({ updatedAt: -1 }).limit(200).lean();
+
+  const [[onRack, awaitingPass, pendingRack, received], completed] = await Promise.all([
+    Promise.all([
+      queueFind(onRackQuery),
+      queueFind(awaitingPassQuery),
+      queueFind(pendingRackQuery),
+      queueFind(receivedQuery),
+    ]),
+    completedBundlesFromLogs(['bundle-check']),
   ]);
 
-  const orderIds = [...new Set([...onRack, ...pendingRack, ...received].map((row) => row.orderId))];
-  const orders = orderIds.length
-    ? await ProductionOrder.find({ _id: { $in: orderIds } }).select('orderNumber').lean()
-    : [];
+  const orderIds = [...new Set([...onRack, ...awaitingPass, ...pendingRack, ...received].map((row) => row.orderId))];
+  const allIds = [...onRack, ...awaitingPass, ...pendingRack, ...received].map((row) => String(row._id || row.id));
+  const checkedBarcodes = [...new Set(completed.map((row) => row.barcode).filter(Boolean))];
+
+  const [orders, metaById, completedBundles] = await Promise.all([
+    orderIds.length
+      ? ProductionOrder.find({ _id: { $in: orderIds } }).select('orderNumber').lean()
+      : Promise.resolve([]),
+    floorCheckMetaMap(allIds),
+    checkedBarcodes.length
+      ? PieceBundle.find({ barcode: { $in: checkedBarcodes } }).select(COMPLETED_BLOCKER_FIELDS).lean()
+      : Promise.resolve([]),
+  ]);
   const numbers = new Map(orders.map((order) => [String(order._id), order.orderNumber || '']));
 
-  const allIds = [...onRack, ...pendingRack, ...received].map((row) => String(row._id || row.id));
-  const floorGoodById = await floorGoodQtyMap(allIds);
-
-  const completed = await completedBundlesFromLogs(['bundle-check']);
-  const checkedBarcodes = [...new Set(completed.map((row) => row.barcode).filter(Boolean))];
-  const completedBundles = checkedBarcodes.length
-    ? await PieceBundle.find({ barcode: { $in: checkedBarcodes } }).lean()
-    : [];
   const bundleByBarcode = new Map(completedBundles.map((row) => [row.barcode, row]));
   const completedEnriched = completed.map((row) => {
     const bundle = row.barcode ? bundleByBarcode.get(row.barcode) : null;
@@ -133,18 +173,24 @@ export const upcomingFloorChecks = async () => {
     };
   });
 
-  const receivedAll = mapRows(received, numbers, floorGoodById);
+  const receivedAll = mapRows(received, numbers, metaById);
   const receivedNeedsAttention = receivedAll.filter((row) => !row.readyForHorizontalHem);
 
+  const inspectNow = mapRows(onRack, numbers, metaById);
+  const awaitingPassRows = mapRows(awaitingPass, numbers, metaById);
+
   return {
-    results: mapRows(onRack, numbers, floorGoodById),
-    pendingPlacement: mapRows(pendingRack, numbers, floorGoodById),
+    results: inspectNow,
+    awaitingPass: awaitingPassRows,
+    pendingPlacement: mapRows(pendingRack, numbers, metaById),
     received: receivedNeedsAttention,
     completed: completedEnriched,
     counts: {
-      waiting: onRack.length,
+      waiting: inspectNow.length + pendingRack.length,
+      inspectNow: inspectNow.length,
+      awaitingPass: awaitingPassRows.length,
       pendingPlacement: pendingRack.length,
-      received: receivedNeedsAttention.length,
+      received: awaitingPassRows.length + receivedNeedsAttention.length,
       completed: completedEnriched.length,
     },
   };

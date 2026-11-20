@@ -47,6 +47,36 @@ const dedupeLogs = (logs) => {
  * @param {string[]} actions
  * @param {number} [days]
  */
+const bundleCheckOnly = (actions) => actions?.length === 1 && actions[0] === 'bundle-check';
+
+/**
+ * Latest bundle-check row per bundle id (one aggregation round trip).
+ * @param {string[]} bundleIds
+ */
+const latestBundleCheckById = async (bundleIds) => {
+  if (!bundleIds.length) return new Map();
+  const checks = await QualityResult.aggregate([
+    { $match: { kind: 'bundle-check', bundleId: { $in: bundleIds.map(String) } } },
+    { $sort: { createdAt: -1 } },
+    {
+      $group: {
+        _id: '$bundleId',
+        bundleId: { $first: '$bundleId' },
+        m2Qty: { $first: '$m2Qty' },
+        defectQty: { $first: '$defectQty' },
+        m4Qty: { $first: '$m4Qty' },
+        goodQty: { $first: '$goodQty' },
+        arrivalQty: { $first: '$arrivalQty' },
+        inspectionGoodQty: { $first: '$inspectionGoodQty' },
+        goodAddedQty: { $first: '$goodAddedQty' },
+        passGoodQty: { $first: '$passGoodQty' },
+        phase: { $first: '$phase' },
+      },
+    },
+  ]);
+  return new Map(checks.map((row) => [String(row._id), row]));
+};
+
 export const completedBundlesFromLogs = async (actions, days = DEFAULT_SINCE_DAYS) => {
   if (!actions?.length) return [];
   const logs = dedupeLogs(
@@ -62,47 +92,40 @@ export const completedBundlesFromLogs = async (actions, days = DEFAULT_SINCE_DAY
   );
   if (!logs.length) return [];
   const barcodes = logs.map((row) => row.entityCode);
-  const bundles = await PieceBundle.find({ barcode: { $in: barcodes } });
+  const bundles = await PieceBundle.find({ barcode: { $in: barcodes } }).lean();
   const bundleByCode = new Map(bundles.map((row) => [row.barcode, row]));
-  const orders = await orderMap(bundles);
-  const m4Map = await m4QtyByBundleId(bundles.map((row) => row._id));
-  const finalQcById = new Map();
-  if (actions.includes('final-qc') && bundles.length) {
-    const qcs = await QualityResult.find({
-      kind: 'final-qc',
-      bundleId: { $in: bundles.map((row) => String(row._id)) },
-    })
-      .select('bundleId goodQty defectQty grades')
-      .lean();
-    for (const row of qcs) {
-      if (!finalQcById.has(row.bundleId)) finalQcById.set(row.bundleId, row);
-    }
-  }
-  const finalCheckingById = new Map();
-  if (actions.includes('final-checking') && bundles.length) {
-    const rows = await QualityResult.find({
-      kind: 'final-checking',
-      bundleId: { $in: bundles.map((row) => String(row._id)) },
-    })
-      .select('bundleId goodQty defectQty rackCode')
-      .lean();
-    for (const row of rows) {
-      if (!finalCheckingById.has(row.bundleId)) finalCheckingById.set(row.bundleId, row);
-    }
-  }
-  const bundleCheckById = new Map();
-  if (actions.includes('bundle-check') && bundles.length) {
-    const checks = await QualityResult.find({
-      kind: 'bundle-check',
-      bundleId: { $in: bundles.map((row) => String(row._id)) },
-    })
-      .sort({ createdAt: -1 })
-      .select('bundleId m2Qty defectQty m4Qty goodQty')
-      .lean();
-    for (const row of checks) {
-      if (!bundleCheckById.has(row.bundleId)) bundleCheckById.set(row.bundleId, row);
-    }
-  }
+  const bundleIds = bundles.map((row) => String(row._id));
+  const orderSelect = bundleCheckOnly(actions) ? 'orderNumber' : 'orderNumber productionType lines';
+  const skipPieceM4 = bundleCheckOnly(actions);
+  const [orders, m4Map, finalQcById, finalCheckingById, bundleCheckById] = await Promise.all([
+    orderMap(bundles, orderSelect),
+    skipPieceM4 ? Promise.resolve(new Map()) : m4QtyByBundleId(bundles.map((row) => row._id)),
+    (async () => {
+      const map = new Map();
+      if (!actions.includes('final-qc') || !bundleIds.length) return map;
+      const qcs = await QualityResult.find({ kind: 'final-qc', bundleId: { $in: bundleIds } })
+        .select('bundleId goodQty defectQty grades arrivalQty inspectionGoodQty goodAddedQty passGoodQty phase')
+        .sort({ createdAt: -1 })
+        .lean();
+      for (const row of qcs) {
+        if (!map.has(row.bundleId)) map.set(row.bundleId, row);
+      }
+      return map;
+    })(),
+    (async () => {
+      const map = new Map();
+      if (!actions.includes('final-checking') || !bundleIds.length) return map;
+      const rows = await QualityResult.find({ kind: 'final-checking', bundleId: { $in: bundleIds } })
+        .select('bundleId goodQty defectQty grades arrivalQty inspectionGoodQty goodAddedQty passGoodQty rackCode phase')
+        .sort({ createdAt: -1 })
+        .lean();
+      for (const row of rows) {
+        if (!map.has(row.bundleId)) map.set(row.bundleId, row);
+      }
+      return map;
+    })(),
+    actions.includes('bundle-check') && bundleIds.length ? latestBundleCheckById(bundleIds) : Promise.resolve(new Map()),
+  ]);
   return logs
     .map((log) => {
       const bundle = bundleByCode.get(log.entityCode);
@@ -115,31 +138,46 @@ export const completedBundlesFromLogs = async (actions, days = DEFAULT_SINCE_DAY
       let goodQty = 0;
       let defectQty = 0;
       let defectGrades = [];
+      let arrivalQty = 0;
+      let goodAddedQty = 0;
+      let passGoodQty = 0;
       const floorCheck = bundle ? bundleCheckById.get(String(bundle._id)) : null;
       if (floorCheck && action === 'bundle-check') {
         m2Qty = Number(floorCheck.m2Qty ?? floorCheck.defectQty) || 0;
         m4Qty = Number(floorCheck.m4Qty) || 0;
         goodQty = Number(floorCheck.goodQty) || 0;
+        arrivalQty = Number(floorCheck.arrivalQty) || 0;
+        goodAddedQty = Number(floorCheck.goodAddedQty) || 0;
+        passGoodQty = Number(floorCheck.passGoodQty) || goodQty;
       }
       const finalQc = bundle ? finalQcById.get(String(bundle._id)) : null;
       if (finalQc && action === 'final-qc') {
         goodQty = Number(finalQc.goodQty) || 0;
         defectQty = Number(finalQc.defectQty) || 0;
         defectGrades = (finalQc.grades || []).filter((grade) => Number(grade.qty) > 0);
+        arrivalQty = Number(finalQc.arrivalQty) || arrivalQty;
+        goodAddedQty = Number(finalQc.goodAddedQty) || 0;
+        passGoodQty = Number(finalQc.passGoodQty) || goodQty;
       }
       const finalChecking = bundle ? finalCheckingById.get(String(bundle._id)) : null;
       if (finalChecking && action === 'final-checking') {
         goodQty = Number(finalChecking.goodQty) || 0;
         defectQty = Number(finalChecking.defectQty) || 0;
+        defectGrades = (finalChecking.grades || []).filter((grade) => Number(grade.qty) > 0);
+        arrivalQty = Number(finalChecking.arrivalQty) || arrivalQty;
+        goodAddedQty = Number(finalChecking.goodAddedQty) || 0;
+        passGoodQty = Number(finalChecking.passGoodQty) || goodQty;
       }
       const base = { ...shapeBundle(bundle, orders), m4Qty };
       // Snapshot at event time — do not use today's bundle.finalGood for older floor logs.
       const loggedQty = Number(log.quantity) || 0;
       let transferQty = loggedQty;
       if (action === 'final-checking' && finalChecking) {
-        transferQty = Number(finalChecking.goodQty) || loggedQty;
+        transferQty = passGoodQty > 0 ? passGoodQty : Number(finalChecking.goodQty) || loggedQty;
       } else if (action === 'final-qc' && finalQc) {
-        transferQty = Number(finalQc.goodQty) || loggedQty;
+        transferQty = Number(finalQc.passGoodQty) || Number(finalQc.goodQty) || loggedQty;
+      } else if (action === 'bundle-check' && passGoodQty > 0) {
+        transferQty = passGoodQty;
       } else if (action === 'bundle-check' && goodQty > 0) {
         transferQty = goodQty;
       } else if (transferQty < 1 && bundle) {
@@ -154,6 +192,9 @@ export const completedBundlesFromLogs = async (actions, days = DEFAULT_SINCE_DAY
         defectGrades,
         m2Qty,
         m4Qty,
+        arrivalQty,
+        goodAddedQty,
+        passGoodQty,
         transferredTo: log.toLocation || bundle?.rackCode || bundle?.process || '',
         completedAt: log.at,
         completedAction: log.action,

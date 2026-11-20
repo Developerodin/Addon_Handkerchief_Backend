@@ -19,6 +19,13 @@ const bundlesRack = (scanned) => rackOfType(scanned, 'bundles', 'This rack is no
 const bundleCodes = (barcodes) => [...new Set((barcodes || []).map((code) => String(code || '').trim()).filter(Boolean))];
 
 /**
+ * Hemmed bundles ready for thread cutting (legacy `inline-check` treated as hemmed).
+ * @param {{ process?: string }} bundle
+ */
+const readyForThreadCut = (bundle) =>
+  bundle.process === 'horizontal-hem' || bundle.process === 'inline-check';
+
+/**
  * @param {object} row
  * @param {Map<string, string>} orderNumbers
  */
@@ -49,8 +56,9 @@ const orderNumbersFor = async (rows) => {
  * Hemmed bundles on a rack, plus bundles already on a thread-cutting table.
  */
 export const upcomingThreadCut = async () => {
-  const waitingQuery = { closed: true, process: 'horizontal-hem', rackCode: { $nin: ['', null] } };
-  const activeQuery = { closed: true, process: 'horizontal-hem', rackCode: { $in: ['', null] }, machineBarcode: { $nin: ['', null] } };
+  const hemProcess = { $in: ['horizontal-hem', 'inline-check'] };
+  const waitingQuery = { closed: true, process: hemProcess, rackCode: { $nin: ['', null] } };
+  const activeQuery = { closed: true, process: hemProcess, rackCode: { $in: ['', null] }, machineBarcode: { $nin: ['', null] } };
   const [waiting, active] = await Promise.all([
     PieceBundle.find(waitingQuery).sort({ updatedAt: -1 }).limit(200).lean(),
     PieceBundle.find(activeQuery).sort({ updatedAt: -1 }).limit(200).lean(),
@@ -91,7 +99,7 @@ export const startThreadCut = async (body, _params, user) => {
   if (bundles.length !== codes.length) throw new ApiError(httpStatus.BAD_REQUEST, 'Bundle not found');
   for (const bundle of bundles) {
     if (bundle.process === 'thread-cut') throw new ApiError(httpStatus.BAD_REQUEST, 'This bundle is already thread cut');
-    if (bundle.process !== 'horizontal-hem') throw new ApiError(httpStatus.BAD_REQUEST, 'This bundle is not hemmed');
+    if (!readyForThreadCut(bundle)) throw new ApiError(httpStatus.BAD_REQUEST, 'This bundle is not hemmed');
     if (!bundle.closed || !bundle.barcode) throw new ApiError(httpStatus.BAD_REQUEST, 'This bundle is not hemmed');
     if (!bundle.rackCode && bundle.machineBarcode) throw new ApiError(httpStatus.BAD_REQUEST, 'This bundle is already on the table');
     if (!bundle.rackCode) throw new ApiError(httpStatus.BAD_REQUEST, 'This bundle is not on a rack');
@@ -123,7 +131,7 @@ export const placeThreadCut = async (body, _params, user) => {
   if (bundles.length !== codes.length) throw new ApiError(httpStatus.BAD_REQUEST, 'Bundle not found');
   for (const bundle of bundles) {
     if (bundle.process === 'thread-cut') throw new ApiError(httpStatus.BAD_REQUEST, 'This bundle is already thread cut');
-    if (bundle.process !== 'horizontal-hem' || bundle.rackCode || !bundle.machineBarcode) {
+    if (!readyForThreadCut(bundle) || bundle.rackCode || !bundle.machineBarcode) {
       throw new ApiError(httpStatus.BAD_REQUEST, 'This bundle is not on the table');
     }
   }

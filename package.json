@@ -36,6 +36,10 @@
     "orders:clear": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/clear-production-orders.js",
     "seed:vertical-cut-demo": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/seed-vertical-cut-demo.js",
     "seed:production-catalog-demo": "node --disable-warning=DEP0170 scripts/seedProductionCatalogDemo.js",
+    "sync:processes-local": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/sync-processes-local-to-atlas.js",
+    "sync:items-local": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/sync-items-local-to-atlas.js",
+    "sync:fabrics-local": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/sync-fabrics-for-local-items.js",
+    "sync:catalog-local": "npm run sync:processes-local && npm run sync:fabrics-local && npm run sync:items-local",
     "seed:floor-equipment": "node --disable-warning=DEP0170 scripts/seedFloorEquipment.js",
     "seed:floor-racks": "node --disable-warning=DEP0170 scripts/seedFloorRacks.js",
     "patch:qc-processes": "node --disable-warning=DEP0170 scripts/patchQcProcessMasters.js",
@@ -51,7 +55,9 @@
     "e2e:production-gate-full": "npm run e2e:multi-order-flow && npm run e2e:ten-floor-dispatch && npm run e2e:dispatch-orders",
     "rollback:bundle-iron": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/rollback-bundle-for-iron.js",
     "rollback:bundle-emb-thread": "cross-env NODE_ENV=development node --disable-warning=DEP0170 scripts/rollback-bundle-for-embroidery-thread.js",
-    "sync:ec2-to-atlas": "bash scripts/sync-ec2-production-to-atlas.sh"
+    "sync:ec2-to-atlas": "bash scripts/sync-ec2-production-to-atlas.sh",
+    "atlas:empty": "node --disable-warning=DEP0170 scripts/empty-atlas-database.js",
+    "sync:floor-masters-to-atlas": "node --disable-warning=DEP0170 scripts/sync-floor-masters-to-atlas.js"
   },
   "keywords": [
     "node",

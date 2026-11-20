@@ -100,6 +100,7 @@ const productionOrderSchema = mongoose.Schema(
     },
     dispatchStatus: { type: String, enum: ['none', 'partial', 'complete'], default: 'none' },
     dispatchedQty: { type: Number, default: 0, min: 0 },
+    dispatchTrackingClosedAt: { type: Date, default: null },
     priority: { type: String, enum: ['Urgent', 'High', 'Medium', 'Low'], default: 'Medium' },
     orderNote: { type: String, default: '' },
     currentFloor: { type: String, default: '' },
@@ -219,6 +220,7 @@ const pieceBundleSchema = mongoose.Schema(
       enum: [
         'created',
         'horizontal-hem',
+        'inline-check',
         'thread-cut',
         'final-qc',
         'final-qc-defect',
@@ -239,6 +241,10 @@ const pieceBundleSchema = mongoose.Schema(
     fromFloor: { type: String, default: '' },
     toFloor: { type: String, default: '' },
     status: { type: String, enum: ['open', 'closed', 'in-transit', 'received'], default: 'open' },
+    /** Defects logged at floor check; pass may happen later. */
+    floorInspected: { type: Boolean, default: false },
+    finalQcInspected: { type: Boolean, default: false },
+    finalCheckingInspected: { type: Boolean, default: false },
     /** Floor bundle check recorded (good + defect + M4 sum to qty). */
     floorChecked: { type: Boolean, default: false },
     /** Every piece counted as good (no defect or M4). */
@@ -264,7 +270,7 @@ const orderLogSchema = mongoose.Schema(
     action: { type: String, required: true },
     userId: { type: String, default: '' },
     userName: { type: String, default: '' },
-    entityType: { type: String, enum: ['roll', 'bundle', 'box', 'po', 'grn', 'order'], required: true },
+    entityType: { type: String, enum: ['roll', 'bundle', 'box', 'po', 'grn', 'order', 'dispatch-shipment'], required: true },
     entityCode: { type: String, default: '' },
     quantity: { type: Number, default: 1 },
     fromLocation: { type: String, default: '' },
@@ -291,6 +297,7 @@ pieceBundleSchema.index({ orderId: 1, closed: 1, updatedAt: -1 });
 pieceBundleSchema.index({ closed: 1, checkedGood: 1, process: 1, rackCode: 1, updatedAt: -1 });
 pieceBundleSchema.index({ process: 1, updatedAt: -1 });
 pieceBundleSchema.index({ process: 1, rackCode: 1 });
+pieceBundleSchema.index({ closed: 1, floorInspected: 1, floorChecked: 1, checkedGood: 1, process: 1, updatedAt: -1 });
 pieceBundleSchema.index({ closed: 1, floorChecked: 1, checkedGood: 1, process: 1, updatedAt: -1 });
 pieceBundleSchema.index({ machineBarcode: 1, process: 1, updatedAt: -1 });
 
@@ -298,6 +305,7 @@ threadUseSchema.index({ orderId: 1, createdAt: -1 });
 
 orderLogSchema.index({ orderId: 1, at: -1 });
 orderLogSchema.index({ action: 1, at: -1 });
+orderLogSchema.index({ action: 1, entityType: 1, at: -1 });
 
 for (const schema of [
   productionOrderSchema,

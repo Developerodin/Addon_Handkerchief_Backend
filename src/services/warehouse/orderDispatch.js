@@ -1,6 +1,7 @@
 import { ProductionOrder } from '../../models/production.model.js';
-import { DispatchBox } from '../../models/warehouse.model.js';
+import { DispatchBox, DispatchShipment } from '../../models/warehouse.model.js';
 import { writeOrderLog } from '../orderLog.service.js';
+import { draftShipmentIdsByOrder, shapeDispatchShipment } from './dispatchShipment.service.js';
 
 /**
  * Roll up dispatched piece qty onto the production order.
@@ -58,17 +59,32 @@ export const dispatchOrdersSummary = async (query = {}) => {
     byId.set(id, slot);
   }
   const orders = await ProductionOrder.find({ _id: { $in: [...byId.keys()] } }).select(
-    'orderNumber buyer targetQty dispatchedQty dispatchStatus'
+    'orderNumber buyer targetQty dispatchedQty dispatchStatus dispatchTrackingClosedAt'
   );
-  const results = orders.map((order) => ({
-    orderId: String(order.id),
-    orderNumber: order.orderNumber || '',
-    buyer: order.buyer || '',
-    targetQty: order.targetQty || 0,
-    dispatchedQty: order.dispatchedQty || 0,
-    dispatchStatus: order.dispatchStatus || 'none',
-    ...(byId.get(String(order.id)) || { onRack: 0, pipeline: 0, dispatchedPieces: 0, boxCount: 0 }),
-  }));
+  const draftMap = await draftShipmentIdsByOrder();
+  const results = orders
+    .map((order) => {
+      const stats = byId.get(String(order.id)) || { onRack: 0, pipeline: 0, dispatchedPieces: 0, boxCount: 0 };
+      const draft = draftMap.get(String(order.id));
+      return {
+        orderId: String(order.id),
+        orderNumber: order.orderNumber || '',
+        buyer: order.buyer || '',
+        targetQty: order.targetQty || 0,
+        dispatchedQty: order.dispatchedQty || 0,
+        dispatchStatus: order.dispatchStatus || 'none',
+        dispatchTrackingClosedAt: order.dispatchTrackingClosedAt || null,
+        ...stats,
+        ...(draft || {}),
+      };
+    })
+    .filter((row) => {
+      if (!row.dispatchTrackingClosedAt) return true;
+      if (row.onRack > 0) return true;
+      if (row.openShipmentId) return true;
+      if ((row.draftBoxCount || 0) > 0) return true;
+      return false;
+    });
   const page = Math.max(1, parseInt(query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 50));
   const skip = (page - 1) * limit;
@@ -98,16 +114,20 @@ const shapeDispatchBox = (row, orderNumber = '') => ({
 });
 
 export const dispatchPackForOrder = async (orderId) => {
-  const order = await ProductionOrder.findById(orderId).select('orderNumber buyer targetQty dispatchedQty dispatchStatus');
+  const order = await ProductionOrder.findById(orderId).select(
+    'orderNumber buyer targetQty dispatchedQty dispatchStatus dispatchTrackingClosedAt'
+  );
   if (!order) return null;
   const orderNumber = order.orderNumber || '';
-  const [onRack, dispatched, pipeline] = await Promise.all([
+  const [onRack, dispatched, pipeline, shipments, draft] = await Promise.all([
     DispatchBox.find({ productionOrderId: orderId, status: 'on-rack' }).sort({ updatedAt: -1 }),
     DispatchBox.find({ productionOrderId: orderId, status: 'dispatched' }).sort({ updatedAt: -1 }).limit(100),
     DispatchBox.find({
       productionOrderId: orderId,
       status: { $in: ['open', 'weighed', 'ready-for-dispatch'] },
     }).sort({ updatedAt: -1 }),
+    DispatchShipment.find({ productionOrderId: orderId, status: 'dispatched' }).sort({ dispatchedAt: -1 }).limit(50),
+    DispatchShipment.findOne({ productionOrderId: orderId, status: 'draft' }),
   ]);
   const mapRow = (row) => shapeDispatchBox(row, orderNumber);
   return {
@@ -118,9 +138,12 @@ export const dispatchPackForOrder = async (orderId) => {
       targetQty: order.targetQty || 0,
       dispatchedQty: order.dispatchedQty || 0,
       dispatchStatus: order.dispatchStatus || 'none',
+      dispatchTrackingClosedAt: order.dispatchTrackingClosedAt || null,
     },
     onRack: onRack.map(mapRow),
     dispatched: dispatched.map(mapRow),
     pipeline: pipeline.map(mapRow),
+    shipments: shipments.map(shapeDispatchShipment),
+    openShipment: draft ? shapeDispatchShipment(draft) : null,
   };
 };

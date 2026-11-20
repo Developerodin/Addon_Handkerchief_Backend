@@ -19,7 +19,7 @@ const QC_PROCESSES = [
   { name: 'Final checking', code: 'FCH', type: 'checking', department: 'checking', machineType: 'none', floor: 'final-checking', qcCheckpoint: true, sortOrder: 130 },
 ];
 
-const CORE_SEQUENCE = ['VTC', 'SEL', 'HM', 'VH', 'SPC', 'FLC', 'HH', 'THC', 'FQC', 'IRN'];
+const CORE_SEQUENCE = ['VTC', 'SEL', 'HM', 'VH', 'SPC', 'FLC', 'HH', 'ILC', 'THC', 'FQC', 'IRN'];
 
 const sequenceFor = (productionType) => {
   if (productionType === 'embroidery') return [...CORE_SEQUENCE, 'EMB', 'EMT', 'IRA', 'FCH'];

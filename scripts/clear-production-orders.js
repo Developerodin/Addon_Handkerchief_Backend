@@ -20,7 +20,7 @@ import {
 } from '../src/models/production.model.js';
 import { FabricRoll, StockMovement } from '../src/models/store.model.js';
 import { VersionPin } from '../src/models/versioning.model.js';
-import { DispatchBox, PackingBundle } from '../src/models/warehouse.model.js';
+import { DispatchBox, DispatchShipment, PackingBundle } from '../src/models/warehouse.model.js';
 import { QualityResult } from '../src/models/quality.model.js';
 
 const ISSUED = new Set(['issued', 'on-floor']);
@@ -115,9 +115,12 @@ async function main() {
 
     const orderIdStrs = orderIds.map((id) => String(id));
     const packingBundles = await PackingBundle.deleteMany({ orderId: { $in: orderIds } });
-    const dispatchBoxes = await DispatchBox.deleteMany({
-      $or: [{ productionOrderId: { $in: orderIds } }, { packingBundleIds: { $exists: true, $ne: [] } }],
-    });
+    const dispatchShipments = await DispatchShipment.deleteMany(
+      orderIds.length ? { productionOrderId: { $in: orderIds } } : {}
+    );
+    const dispatchBoxes = await DispatchBox.deleteMany(
+      orderIds.length ? { productionOrderId: { $in: orderIds } } : {}
+    );
     const quality = await QualityResult.deleteMany({
       $or: [{ orderId: { $in: orderIdStrs } }, { bundleId: { $regex: /^BD-/ } }],
     });
@@ -138,7 +141,7 @@ async function main() {
     console.log(`Deleted floor completions: ${completions.deletedCount}, pieces: ${pieces.deletedCount}, bundles: ${bundles.deletedCount}`);
     console.log(`Deleted thread uses: ${thread.deletedCount}, version pins: ${pins.deletedCount}`);
     console.log(
-      `Deleted packing bundles: ${packingBundles.deletedCount}, dispatch boxes: ${dispatchBoxes.deletedCount}, quality rows: ${quality.deletedCount}`
+      `Deleted packing bundles: ${packingBundles.deletedCount}, dispatch shipments: ${dispatchShipments.deletedCount}, dispatch boxes: ${dispatchBoxes.deletedCount}, quality rows: ${quality.deletedCount}`
     );
     if (restoreRolls) console.log(`Restored issued rolls to stored: ${rollsRestored}`);
     console.log(`Remaining orders: ${await ProductionOrder.countDocuments()}`);

@@ -23,6 +23,7 @@ import * as halfMoon from '../src/services/production/halfMoon.service.js';
 import * as verticalHem from '../src/services/production/verticalHem.service.js';
 import * as singlePiece from '../src/services/production/singlePiece.service.js';
 import * as horizontalHem from '../src/services/production/horizontalHem.service.js';
+import * as inlineCheck from '../src/services/production/inlineCheck.service.js';
 import * as threadCut from '../src/services/production/threadCut.service.js';
 import * as finalQc from '../src/services/production/finalQc.service.js';
 import * as iron from '../src/services/production/iron.service.js';
@@ -71,6 +72,7 @@ const SERVICE_POST = {
   '/production/single-piece/place': (body) => singlePiece.placeSinglePiece(body, {}, e2eUser),
   '/production/horizontal-hem/start': (body) => horizontalHem.startHorizontalHem(body, {}, e2eUser),
   '/production/horizontal-hem/place': (body) => horizontalHem.placeHorizontalHem(body, {}, e2eUser),
+  '/production/inline-check/record': (body) => inlineCheck.recordInlineCheck(body, {}, e2eUser),
   '/production/thread-cut/start': (body) => threadCut.startThreadCut(body, {}, e2eUser),
   '/production/thread-cut/place': (body) => threadCut.placeThreadCut(body, {}, e2eUser),
   '/quality/final-qc': (body) => finalQc.recordFinalQc(body, {}, e2eUser),
@@ -392,6 +394,14 @@ async function walkPieceToBundle(orderId, rollBarcode, pieceBarcode) {
   });
   expectStatus(res, 200, 'horizontal-hem place');
 
+  res = await request('POST', '/production/inline-check/record', {
+    bundleBarcode,
+    hemMachineBarcode: MACHINE,
+    rackCode: RACK_BUNDLE_B,
+    confirmed: true,
+  });
+  expectStatus(res, 200, 'inline-check record');
+
   res = await request('POST', '/production/thread-cut/start', {
     bundleBarcodes: [bundleBarcode],
     rackCode: RACK_BUNDLE_B,
@@ -533,9 +543,9 @@ async function packDispatchOrder(bundleBarcode, orderId, { expectPartial = false
   await packingFloor.weighBox({ boxBarcode: open.barcode, scaleWeight: 4.1 });
   await packingFloor.markBoxReady({ boxBarcode: open.barcode }, {}, null);
   await packingFloor.storeBox({ boxBarcode: open.barcode, rackCode: 'WH-BOX-01' }, {}, null);
-  await packingFloor.shipBox(
-    { boxBarcode: open.barcode, vehicleNumber: 'E2E-FLOOR', eventId: `e2e-floor-${open.barcode}`, site: 'factory' },
-    {},
+  const { shipBoxViaBatch } = await import('../src/services/warehouse/shipViaBatch.js');
+  await shipBoxViaBatch(
+    { boxBarcode: open.barcode, productionOrderId: String(orderId), vehicleNumber: 'E2E-FLOOR', eventId: `e2e-floor-${open.barcode}` },
     null
   );
   const orderRow = await ProductionOrder.findById(orderId);

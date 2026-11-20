@@ -2,8 +2,8 @@ import httpStatus from 'http-status';
 import ApiError from '../utils/ApiError.js';
 import { DEFAULT_GRADES, QualityGrade, QualityResult } from '../models/quality.model.js';
 import { FabricLot, FabricRoll, PurchaseOrder } from '../models/store.model.js';
-import { PieceBundle } from '../models/production.model.js';
-import { writeOrderLog } from './orderLog.service.js';
+import { PieceBundle, ProductionOrder } from '../models/production.model.js';
+import { actorOf, writeOrderLog } from './orderLog.service.js';
 import { runTransaction, sessionOptions } from '../utils/mongoTransaction.js';
 import { receiveRollBack } from './store.service.js';
 
@@ -243,13 +243,9 @@ export const rejectRollToRack = async (body, _params, user) => {
 };
 
 /**
- * Good, M2, and M4 quantities must add up to the bundle. M4 is not in the good count.
- * @param {object} body — `m2Qty` preferred; `defectQty` accepted for older clients (same meaning).
- * @param {object} [_params]
- * @param {object | null} [user]
+ * @param {import('mongoose').Document} bundle
  */
-export const recordBundleCheck = async (body, _params, user) => {
-  const bundle = await PieceBundle.findById(body.bundleId);
+const assertBundleReadyForFloorCheck = (bundle) => {
   if (!bundle) throw new ApiError(httpStatus.NOT_FOUND, 'Bundle not found');
   if (!bundle.closed) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Close this bundle on Single piece cutting before floor check.');
@@ -263,6 +259,240 @@ export const recordBundleCheck = async (body, _params, user) => {
       'Place this bundle on a bundles rack in Single piece cutting before floor check.'
     );
   }
+};
+
+/**
+ * @param {import('mongoose').Document} bundle
+ */
+const articleLabelForBundle = async (bundle) => {
+  const order = await ProductionOrder.findById(bundle.orderId).select('lines.articleName lines.fabricName').lean();
+  if (!order?.lines?.length) return '';
+  const lineId = bundle.lineId ? String(bundle.lineId) : '';
+  const matched = lineId
+    ? (order.lines || []).find((line) => String(line._id || line.id) === lineId)
+    : order.lines[0];
+  const line = matched || order.lines[0];
+  return String(line?.articleName || line?.fabricName || '').trim();
+};
+
+/**
+ * @param {object | null | undefined} user
+ */
+const actorLabel = (user) => actorOf(user).userName || actorOf(user).userId || '';
+
+/**
+ * @param {string} bundleId
+ */
+const openInspectionForBundle = async (bundleId) =>
+  QualityResult.findOne({ bundleId: String(bundleId), kind: 'bundle-check', phase: 'inspected' }).sort({
+    createdAt: -1,
+  });
+
+const passPayload = (bundle, result) => {
+  const processOk = !bundle.process || bundle.process === 'created';
+  return {
+    ...result.toObject?.() ?? result,
+    bundleBarcode: bundle.barcode,
+    rackCode: bundle.rackCode,
+    readyForHorizontalHem: processOk,
+    nextStep: processOk ? 'horizontal-hem' : bundle.process,
+  };
+};
+
+/**
+ * Log M2/M4 at inspection; bundle stays on QC until pass.
+ * @param {object} body
+ * @param {object | null} [user]
+ * @param {import('mongoose').ClientSession | null} [outerSession]
+ */
+const saveBundleInspection = async (body, user, outerSession = null) => {
+  const bundle = await PieceBundle.findById(body.bundleId);
+  assertBundleReadyForFloorCheck(bundle);
+  if (bundle.floorChecked || bundle.checkedGood) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'This bundle has already passed floor check.');
+  }
+  const m2Qty =
+    body.m2Qty !== undefined && body.m2Qty !== null
+      ? Number(body.m2Qty) || 0
+      : Number(body.defectQty) || 0;
+  const m4Qty = Number(body.m4Qty) || 0;
+  const arrivalQty = Number(bundle.qty) || 0;
+  if (arrivalQty < 1) throw new ApiError(httpStatus.BAD_REQUEST, 'Bundle has no quantity.');
+  if (m2Qty + m4Qty > arrivalQty) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'M2 + M4 cannot exceed arrival quantity');
+  }
+  const inspectionGoodQty = Math.max(0, arrivalQty - m2Qty - m4Qty);
+  const existingEvent = body.eventId ? await QualityResult.findOne({ eventId: body.eventId }) : null;
+  if (existingEvent) return { bundle, result: existingEvent, inspectionGoodQty, arrivalQty };
+
+  const run = async (session) => {
+    bundle.floorInspected = true;
+    await bundle.save(sessionOptions(session));
+    const articleLabel = await articleLabelForBundle(bundle);
+    const lineId = bundle.lineId ? String(bundle.lineId) : '';
+    const allGood = m2Qty === 0 && m4Qty === 0;
+    let result = await openInspectionForBundle(bundle.id);
+    if (result) {
+      result.m2Qty = m2Qty;
+      result.defectQty = m2Qty;
+      result.m4Qty = m4Qty;
+      result.arrivalQty = arrivalQty;
+      result.inspectionGoodQty = inspectionGoodQty;
+      result.articleLabel = articleLabel;
+      result.lineId = lineId;
+      result.inspectedBy = actorLabel(user);
+      result.passed = allGood;
+      await result.save(sessionOptions(session));
+    } else {
+      const eventId = body.eventId || `bdl-insp-${bundle.id}-${Date.now()}`;
+      [result] = await QualityResult.create(
+        [
+          {
+            eventId,
+            kind: 'bundle-check',
+            phase: 'inspected',
+            bundleId: String(bundle.id),
+            orderId: String(bundle.orderId),
+            m2Qty,
+            defectQty: m2Qty,
+            m4Qty,
+            arrivalQty,
+            inspectionGoodQty,
+            articleLabel,
+            lineId,
+            inspectedBy: actorLabel(user),
+            passed: allGood,
+            rackCode: bundle.rackCode || '',
+          },
+        ],
+        sessionOptions(session)
+      );
+    }
+    await writeOrderLog(
+      {
+        action: 'bundle-check-inspect',
+        orderId: bundle.orderId,
+        entityType: 'bundle',
+        entityCode: bundle.barcode,
+        quantity: inspectionGoodQty,
+        remarks: `m2 ${m2Qty} m4 ${m4Qty} arrival ${arrivalQty}`,
+      },
+      user,
+      session
+    );
+    return result;
+  };
+
+  const result = outerSession ? await run(outerSession) : await runTransaction(run);
+  return { bundle, result, inspectionGoodQty, arrivalQty };
+};
+
+/**
+ * @param {object} body
+ * @param {object | null} [user]
+ * @param {import('mongoose').ClientSession | null} [outerSession]
+ */
+const saveBundlePass = async (body, user, outerSession = null) => {
+  const bundle = await PieceBundle.findById(body.bundleId);
+  assertBundleReadyForFloorCheck(bundle);
+  if (!bundle.floorInspected) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Save inspection (M2/M4) before passing to the next floor.');
+  }
+  if (bundle.floorChecked || bundle.checkedGood) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'This bundle has already passed floor check.');
+  }
+  const inspection = await openInspectionForBundle(bundle.id);
+  if (!inspection) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'No inspection record found for this bundle.');
+  }
+  const goodAddedQty = Number(body.goodAddedQty) || 0;
+  const passGoodQty = Number(body.passGoodQty);
+  const inspectionGoodQty = Number(inspection.inspectionGoodQty) || 0;
+  const maxPass = inspectionGoodQty + goodAddedQty;
+  if (!Number.isFinite(passGoodQty) || passGoodQty < 1) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Pass quantity must be at least 1');
+  }
+  if (passGoodQty > maxPass) {
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      `Pass quantity cannot exceed good after inspection (${inspectionGoodQty}) plus good added (${goodAddedQty})`
+    );
+  }
+  const existingEvent = body.eventId ? await QualityResult.findOne({ eventId: body.eventId }) : null;
+  if (existingEvent?.phase === 'passed') return passPayload(bundle, existingEvent);
+
+  const m2Qty = Number(inspection.m2Qty) || 0;
+  const m4Qty = Number(inspection.m4Qty) || 0;
+  const allGood = m2Qty === 0 && m4Qty === 0 && goodAddedQty === 0 && passGoodQty === Number(inspection.arrivalQty || bundle.qty);
+
+  const run = async (session) => {
+    bundle.floorChecked = true;
+    bundle.checkedGood = true;
+    bundle.finalGood = passGoodQty;
+    bundle.qty = passGoodQty;
+    await bundle.save(sessionOptions(session));
+    inspection.phase = 'passed';
+    inspection.goodAddedQty = goodAddedQty;
+    inspection.passGoodQty = passGoodQty;
+    inspection.goodQty = passGoodQty;
+    inspection.passedBy = actorLabel(user);
+    inspection.passed = allGood;
+    await inspection.save(sessionOptions(session));
+    await writeOrderLog(
+      {
+        action: 'bundle-check',
+        orderId: bundle.orderId,
+        entityType: 'bundle',
+        entityCode: bundle.barcode,
+        quantity: passGoodQty,
+        remarks: `added ${goodAddedQty} m2 ${m2Qty} m4 ${m4Qty}`,
+      },
+      user,
+      session
+    );
+    return inspection;
+  };
+
+  const result = outerSession ? await run(outerSession) : await runTransaction(run);
+  return passPayload(bundle, result);
+};
+
+export const recordBundleInspect = async (body, _params, user) => {
+  const { bundle, result, inspectionGoodQty, arrivalQty } = await saveBundleInspection(body, user);
+  return {
+    ...result.toObject(),
+    inspectionGoodQty,
+    arrivalQty,
+    bundleBarcode: bundle?.barcode,
+  };
+};
+
+export const recordBundlePass = async (body, _params, user) => saveBundlePass(body, user);
+
+/**
+ * One-shot floor check (legacy clients). Runs inspect + pass with goodAdded 0.
+ * @deprecated Prefer `/quality/bundle-checks/inspect` and `/quality/bundle-checks/pass`.
+ */
+export const recordBundleCheck = async (body, _params, user) => {
+  const existing = body.eventId ? await QualityResult.findOne({ eventId: body.eventId }) : null;
+  if (existing) {
+    const bundle = await PieceBundle.findById(body.bundleId || existing.bundleId);
+    return passPayload(bundle, existing);
+  }
+  if (body.passGoodQty != null || body.goodAddedQty != null) {
+    await saveBundleInspection(body, user);
+    return saveBundlePass(
+      {
+        bundleId: body.bundleId,
+        goodAddedQty: body.goodAddedQty ?? 0,
+        passGoodQty: body.passGoodQty ?? body.goodQty,
+        eventId: body.passEventId || body.eventId,
+      },
+      user
+    );
+  }
+  const bundle = await PieceBundle.findById(body.bundleId);
+  assertBundleReadyForFloorCheck(bundle);
   const m2Qty =
     body.m2Qty !== undefined && body.m2Qty !== null
       ? Number(body.m2Qty) || 0
@@ -273,55 +503,80 @@ export const recordBundleCheck = async (body, _params, user) => {
   if (sum !== bundle.qty) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Good + M2 + M4 must equal the bundle quantity');
   }
-  const existing = await QualityResult.findOne({ eventId: body.eventId });
-  if (existing) return existing;
-  const bundleQtyBeforeCheck = bundle.qty;
-  const allGood = goodQty === bundleQtyBeforeCheck;
   return runTransaction(async (session) => {
-    bundle.floorChecked = true;
-    // Dev/testing: completed floor check can proceed to horizontal hemming even with M2/M4 split.
-    bundle.checkedGood = true;
-    // Only good qty continues to horizontal hemming; M2/M4 stay on the quality record.
-    bundle.finalGood = goodQty;
-    bundle.qty = goodQty;
-    await bundle.save(sessionOptions(session));
-    const [result] = await QualityResult.create(
-      [
-        {
-          eventId: body.eventId,
-          kind: 'bundle-check',
-          bundleId: String(bundle.id),
-          orderId: String(bundle.orderId),
-          goodQty,
-          m2Qty,
-          defectQty: m2Qty,
-          m4Qty,
-          passed: allGood,
-        },
-      ],
-      sessionOptions(session)
+    await saveBundleInspection(
+      { ...body, eventId: body.inspectEventId || `bdl-insp-${body.bundleId}-${Date.now()}` },
+      user,
+      session
     );
-    await writeOrderLog(
+    return saveBundlePass(
       {
-        action: 'bundle-check',
-        orderId: bundle.orderId,
-        entityType: 'bundle',
-        entityCode: bundle.barcode,
-        quantity: goodQty,
-        remarks: `m2 ${m2Qty} m4 ${m4Qty}`,
+        bundleId: body.bundleId,
+        goodAddedQty: 0,
+        passGoodQty: goodQty,
+        eventId: body.eventId || `bdl-pass-${body.bundleId}-${Date.now()}`,
       },
       user,
       session
     );
-    const processOk = !bundle.process || bundle.process === 'created';
+  });
+};
+
+/**
+ * Paginated floor defect / bundle-check ledger for supervisors.
+ * @param {object} query
+ */
+const QC_LOG_KINDS = new Set(['bundle-check', 'final-qc', 'final-checking', 'all']);
+
+export const listFloorDefectLogs = async (query) => {
+  const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
+  const page = Math.max(Number(query.page) || 1, 1);
+  const kindParam = String(query.kind || 'bundle-check').trim();
+  const filter = {};
+  if (kindParam === 'all') {
+    filter.kind = { $in: ['bundle-check', 'final-qc', 'final-checking'] };
+  } else if (QC_LOG_KINDS.has(kindParam)) {
+    filter.kind = kindParam;
+  } else {
+    filter.kind = 'bundle-check';
+  }
+  if (query.orderId) filter.orderId = String(query.orderId);
+  if (query.bundleId) filter.bundleId = String(query.bundleId);
+  if (query.phase === 'inspected' || query.phase === 'passed') filter.phase = query.phase;
+  if (query.barcode) {
+    const bundle = await PieceBundle.findOne({ barcode: String(query.barcode).trim() });
+    if (!bundle) return { results: [], page, limit, total: 0 };
+    filter.bundleId = String(bundle._id || bundle.id);
+  }
+  const logFields =
+    'kind bundleId orderId phase arrivalQty m2Qty m4Qty defectQty inspectionGoodQty goodAddedQty passGoodQty grades articleLabel inspectedBy passedBy createdAt updatedAt';
+  const [rows, total] = await Promise.all([
+    QualityResult.find(filter)
+      .select(logFields)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    QualityResult.countDocuments(filter),
+  ]);
+  const bundleIds = [...new Set(rows.map((row) => row.bundleId).filter(Boolean))];
+  const bundles = bundleIds.length ? await PieceBundle.find({ _id: { $in: bundleIds } }).select('barcode rackCode').lean() : [];
+  const barcodeById = new Map(bundles.map((row) => [String(row._id), row.barcode || '']));
+  const orderIds = [...new Set(rows.map((row) => row.orderId).filter(Boolean))];
+  const orders = orderIds.length
+    ? await ProductionOrder.find({ _id: { $in: orderIds } }).select('orderNumber').lean()
+    : [];
+  const orderNumberById = new Map(orders.map((row) => [String(row._id), row.orderNumber || '']));
+  const results = rows.map((row) => {
+    const grades = (row.grades || []).filter((grade) => Number(grade.qty) > 0);
     return {
-      ...result.toObject(),
-      bundleBarcode: bundle.barcode,
-      rackCode: bundle.rackCode,
-      readyForHorizontalHem: processOk,
-      nextStep: processOk ? 'horizontal-hem' : bundle.process,
+      ...row,
+      bundleBarcode: barcodeById.get(String(row.bundleId)) || '',
+      orderNumber: orderNumberById.get(String(row.orderId)) || '',
+      defectGrades: grades.length ? grades : undefined,
     };
   });
+  return { results, page, limit, total };
 };
 
 /**

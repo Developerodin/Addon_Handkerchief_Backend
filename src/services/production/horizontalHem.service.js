@@ -57,12 +57,15 @@ const latestFloorGoodByBundleIds = async (bundleIds) => {
     bundleId: { $in: bundleIds.map(String) },
   })
     .sort({ createdAt: -1 })
-    .select('bundleId goodQty')
+    .select('bundleId goodQty passGoodQty phase')
     .lean();
   const map = new Map();
   for (const row of rows) {
     const id = String(row.bundleId);
-    if (!map.has(id)) map.set(id, Number(row.goodQty) || 0);
+    if (!map.has(id)) {
+      const pass = Number(row.passGoodQty) || 0;
+      map.set(id, pass > 0 ? pass : Number(row.goodQty) || 0);
+    }
   }
   return map;
 };

@@ -25,6 +25,15 @@ const FLOOR_PROCESSES = [
   { name: 'Single piece cutting', code: 'SPC', type: 'cutting', department: 'cutting', machineType: 'cutting', floor: 'single-piece-cutting', sortOrder: 50 },
   { name: 'Floor checks', code: 'FLC', type: 'checking', department: 'checking', machineType: 'none', floor: 'floor-check', qcCheckpoint: true, sortOrder: 55 },
   { name: 'Horizontal hemming', code: 'HH', type: 'hemming', department: 'hemming', machineType: 'horizontal-hemming', floor: 'horizontal-hem', sortOrder: 60 },
+  {
+    name: 'Inline checking',
+    code: 'ILC',
+    type: 'checking',
+    department: 'checking',
+    machineType: 'none',
+    floor: 'inline-check',
+    sortOrder: 65,
+  },
   { name: 'Thread cutting', code: 'THC', type: 'hemming', department: 'hemming', machineType: 'none', floor: 'thread-cutting', threadConsuming: true, sortOrder: 70 },
   { name: 'Final QC', code: 'FQC', type: 'checking', department: 'checking', machineType: 'none', floor: 'final-qc', qcCheckpoint: true, sortOrder: 75 },
   { name: 'Ironing', code: 'IRN', type: 'ironing', department: 'ironing', machineType: 'ironing', floor: 'iron', sortOrder: 80 },
@@ -36,7 +45,7 @@ const FLOOR_PROCESSES = [
 ];
 
 /** Shared cutting/hemming/QC/iron steps (matches Production sidebar). */
-const CORE_SEQUENCE = ['VTC', 'SEL', 'HM', 'VH', 'SPC', 'FLC', 'HH', 'THC', 'FQC', 'IRN'];
+const CORE_SEQUENCE = ['VTC', 'SEL', 'HM', 'VH', 'SPC', 'FLC', 'HH', 'ILC', 'THC', 'FQC', 'IRN'];
 const sequenceFor = (productionType) => {
   if (productionType === 'embroidery') return [...CORE_SEQUENCE, 'EMB', 'EMT', 'IRA', 'FCH'];
   if (productionType === 'sticker') return [...CORE_SEQUENCE, 'STK', 'IRA', 'FCH'];

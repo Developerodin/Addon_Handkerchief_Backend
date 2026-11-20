@@ -19,6 +19,7 @@ const NORMAL_FLOORS = [
   ['Bundle', 'single-piece-cutting'],
   ['Floor checks', 'floor-check'],
   ['Horizontal hem', 'horizontal-hem'],
+  ['Inline checking', 'inline-check'],
   ['Thread cut', 'thread-cutting'],
   ['Final QC', 'final-qc'],
   ['Iron', 'iron'],

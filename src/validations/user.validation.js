@@ -63,6 +63,7 @@ const navigationSchema = Joi.object().keys({
   'Production / Bundle': crudSchema,
   'Production / Horizontal hemming': crudSchema,
   'Production / Horizontal hem': crudSchema,
+  'Production / Inline checking': crudSchema,
   'Production / Thread cutting': crudSchema,
   'Production / Thread cut': crudSchema,
   'Production / Move to ground': crudSchema,

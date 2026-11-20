@@ -248,7 +248,7 @@ const piecesContainer = async (scanned) => {
 const piecesRack = (scanned) => rackOfType(scanned, 'pieces', 'This rack is not for pieces');
 
 /**
- * Puts cut pieces into a pieces container and onto a pieces rack.
+ * Puts cut pieces onto a pieces rack. Container is optional when provided.
  * @param {{ pieceBarcodes?: string[], containerBarcode?: string, rackCode?: string }} body
  * @param {object} [_params]
  * @param {object | null} [user]
@@ -258,15 +258,18 @@ export const placePieces = async (body, _params, user) => {
   if (!codes.length) throw new ApiError(httpStatus.BAD_REQUEST, 'Piece barcodes are required');
   const containerCode = String(body.containerBarcode || '').trim();
   const rackCode = String(body.rackCode || '').trim();
-  if (!containerCode) throw new ApiError(httpStatus.BAD_REQUEST, 'Container barcode is required');
   if (!rackCode) throw new ApiError(httpStatus.BAD_REQUEST, 'Rack is required');
-  const [container, rack] = await Promise.all([piecesContainer(containerCode), piecesRack(rackCode)]);
+  const rack = await piecesRack(rackCode);
+  let containerBarcode = '';
+  if (containerCode) {
+    const container = await piecesContainer(containerCode);
+    containerBarcode = container.barcode || container.code;
+  }
   const pieces = await CutPiece.find({ barcode: { $in: codes } });
   if (pieces.length !== codes.length) throw new ApiError(httpStatus.BAD_REQUEST, 'Piece not found');
   if (pieces.some((piece) => piece.status !== 'cut')) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'This piece is already on a rack');
   }
-  const containerBarcode = container.barcode || container.code;
   return runTransaction(async (session) => {
     await CutPiece.updateMany(
       { barcode: { $in: codes } },

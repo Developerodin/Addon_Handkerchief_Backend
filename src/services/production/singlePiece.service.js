@@ -209,7 +209,7 @@ const sealBundle = async (bundle, session = null) => {
 
 /**
  * Adds good handkerchiefs to the order's open bundle, closing every full 60.
- * A remainder stays open without a barcode. An exact 60 does not leave an empty bundle.
+ * During a cut, a remainder stays open until the cut finishes; `cutSinglePiece` then seals it like other bundles.
  * @param {string} orderId
  * @param {number} goodQty
  */
@@ -316,11 +316,35 @@ export const cutSinglePiece = async (body, _params, user) => {
       user,
       session
     );
-    const orderNumbers = await orderNumbersFor([...new Set(pieces.map((piece) => String(piece.orderId)))]);
+    const orderIds = [...new Set(pieces.map((piece) => String(piece.orderId)))];
+    for (const orderId of orderIds) {
+      let openQuery = PieceBundle.findOne({ orderId, closed: false, qty: { $gt: 0 } }).sort({ number: -1 });
+      if (session) openQuery = openQuery.session(session);
+      const leftover = await openQuery;
+      if (!leftover) continue;
+      await sealBundle(leftover, session);
+      closed.push(leftover);
+      await writeOrderLog(
+        {
+          action: 'single-piece-close',
+          orderId: leftover.orderId,
+          entityType: 'bundle',
+          entityCode: leftover.barcode,
+          quantity: leftover.qty,
+          fromLocation: '',
+          toLocation: '',
+          remarks: 'auto after cut',
+        },
+        user,
+        session
+      );
+    }
+    const closedUnique = [...new Map(closed.map((bundle) => [String(bundle._id || bundle.id), bundle])).values()];
+    const orderNumbers = await orderNumbersFor(orderIds);
     return {
       pieces: pieces.map((piece) => shapePiece(piece, orderNumbers)),
-      closed: closed.map((bundle) => shapeBundle(bundle, orderNumbers)),
-      open: open.map((bundle) => shapeBundle(bundle, orderNumbers)),
+      closed: closedUnique.map((bundle) => shapeBundle(bundle, orderNumbers)),
+      open: [],
     };
   });
 };

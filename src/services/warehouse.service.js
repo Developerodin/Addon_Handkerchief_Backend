@@ -73,10 +73,18 @@ export const createBox = async (body) => {
   if (bundles.some((row) => !row.onPackingRack)) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Packing refuses quantity that is not on the packing rack');
   }
+  const productionOrderId = body.productionOrderId || bundles[0].orderId || null;
+  let orderNumber = body.orderNumber || '';
+  if (!orderNumber && productionOrderId) {
+    const { ProductionOrder } = await import('../models/production.model.js');
+    const po = await ProductionOrder.findById(productionOrderId).select('orderNumber');
+    orderNumber = po?.orderNumber || '';
+  }
   return DispatchBox.create({
     barcode: body.barcode || nextCode('BOX'),
     clientOrderId: body.clientOrderId,
-    productionOrderId: body.productionOrderId,
+    productionOrderId,
+    orderNumber,
     revisionId: body.revisionId || bundles[0].revisionId,
     packingBundleIds: bundles.map((row) => row.barcode),
     scaleWeight: body.scaleWeight,

@@ -1,13 +1,14 @@
 import httpStatus from 'http-status';
 import ApiError from '../../utils/ApiError.js';
 import { placeOnRack, startOnMachine, stationBoard } from './stationFloor.js';
+import { attachThreadHint } from './threadHint.js';
 
 const waiting = { closed: true, process: 'broken', route: 'embroidery' };
 
 /**
  * Broken embroidery bundles on a rack.
  */
-export const upcomingEmbroidery = () => stationBoard(waiting, 'embroidery');
+export const upcomingEmbroidery = async () => attachThreadHint(await stationBoard(waiting, 'embroidery'), 'embroidery-thread');
 
 /**
  * @param {object} bundle
